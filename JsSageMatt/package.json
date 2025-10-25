@@ -1,0 +1,16 @@
+{
+  "name": "scheduler-app",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Calendar scheduling assistant",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "dotenv": "^16.6.1",
+    "googleapis": "^144.0.0",
+    "luxon": "^3.7.2"
+  }
+}
