@@ -1,11 +1,55 @@
 import { useState } from "react";
-import { Phone, Mic, MicOff, Volume2, VolumeX } from "lucide-react";
+import { Phone, Mic, MicOff, Volume2, VolumeX, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+
+type PersonaType = "drMarkovitz" | "kimberly" | "stacy" | null;
 
 const Demo = () => {
   const [isListening, setIsListening] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [demoStarted, setDemoStarted] = useState(false);
+  const [selectedPersona, setSelectedPersona] = useState<PersonaType>(null);
+
+  // Transcription state - will be updated by backend
+  // Backend should call setTranscription with the transcription text
+  // Example: setTranscription("Caller: Hello, is this Dr. Markovitz?\nSage.ai: Yes, this is Dr. Markovitz's office. How can I help you?")
+  const [transcription, setTranscription] = useState<string>("");
+
+  const personas = [
+    { id: "drMarkovitz" as const, name: "Dr. Markovitz", subtitle: "Medical Professional" },
+    { id: "kimberly" as const, name: "Kimberly", subtitle: "Salon Professional" },
+    { id: "stacy" as const, name: "Stacy", subtitle: "Front Desk" },
+  ];
+
+  // TODO: Backend integration
+  // useEffect(() => {
+  //   if (demoStarted && isListening) {
+  //     // Connect to backend WebSocket or API
+  //     // const socket = connectToBackend(selectedPersona);
+  //     // socket.on('transcription', (text) => {
+  //     //   setTranscription(prev => prev + '\n' + text);
+  //     // });
+  //   }
+  // }, [demoStarted, isListening, selectedPersona]);
+
+  const handlePersonaChange = (personaId: PersonaType) => {
+    setSelectedPersona(personaId);
+    // Reset demo when switching personas
+    if (demoStarted) {
+      setDemoStarted(false);
+      setIsListening(false);
+      setTranscription("");
+    }
+  };
+
+  const startDemo = () => {
+    if (!selectedPersona) {
+      alert("Please select a persona to start the demo");
+      return;
+    }
+    setDemoStarted(true);
+  };
 
   const demoScenarios = [
     {
@@ -40,6 +84,103 @@ const Demo = () => {
           <p className="text-lg text-muted-foreground">
             See how our intelligent secretary handles different call scenarios with ease
           </p>
+        </div>
+
+        {/* Persona Selection */}
+        <div className="max-w-4xl mx-auto mb-8">
+          <Card className="bg-gradient-card shadow-soft">
+            <CardHeader className="text-center">
+              <CardTitle className="text-2xl">Select Demo Persona</CardTitle>
+              <CardDescription>
+                Choose a persona to experience in the demo
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Segmented Control Slider */}
+              <div className="max-w-2xl mx-auto">
+                <div className="relative bg-muted/50 p-2 rounded-xl">
+                  {/* Sliding background indicator */}
+                  <div
+                    className="absolute top-2 bottom-2 bg-gradient-sage rounded-lg transition-all duration-300 ease-out"
+                    style={{
+                      left: selectedPersona === "drMarkovitz" ? "0.5rem" :
+                            selectedPersona === "kimberly" ? "calc(33.333% + 0.166rem)" :
+                            selectedPersona === "stacy" ? "calc(66.666% - 0.166rem)" : "0.5rem",
+                      width: "calc(33.333% - 0.333rem)",
+                      opacity: selectedPersona ? 1 : 0,
+                    }}
+                  />
+
+                  {/* Persona buttons */}
+                  <div className="relative grid grid-cols-3 gap-2">
+                    {personas.map((persona) => (
+                      <button
+                        key={persona.id}
+                        onClick={() => handlePersonaChange(persona.id)}
+                        className={`relative flex flex-col items-center py-4 px-3 rounded-lg transition-all duration-200 ${
+                          selectedPersona === persona.id
+                            ? "text-primary-foreground"
+                            : "text-foreground hover:bg-muted/50"
+                        }`}
+                      >
+                        <div className={`h-12 w-12 rounded-full flex items-center justify-center mb-2 transition-colors ${
+                          selectedPersona === persona.id
+                            ? "bg-white/20"
+                            : "bg-primary/10"
+                        }`}>
+                          <User className={`h-6 w-6 ${
+                            selectedPersona === persona.id
+                              ? "text-primary-foreground"
+                              : "text-primary"
+                          }`} />
+                        </div>
+                        <div className="text-center">
+                          <p className={`text-sm font-semibold mb-0.5 ${
+                            selectedPersona === persona.id
+                              ? "text-primary-foreground"
+                              : ""
+                          }`}>
+                            {persona.name}
+                          </p>
+                          <p className={`text-xs ${
+                            selectedPersona === persona.id
+                              ? "text-primary-foreground/80"
+                              : "text-muted-foreground"
+                          }`}>
+                            {persona.subtitle}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Begin Demo Button */}
+              <div className="flex justify-center pt-4">
+                <Button
+                  size="lg"
+                  onClick={startDemo}
+                  disabled={demoStarted}
+                  className="bg-gradient-sage text-lg px-12 hover:scale-105 transition-transform"
+                >
+                  {demoStarted ? "Demo Active" : "Begin Demo"}
+                </Button>
+              </div>
+
+              {/* Selected Persona Display */}
+              {demoStarted && selectedPersona && (
+                <div className="text-center animate-fade-in">
+                  <p className="text-sm text-muted-foreground">
+                    Demo started with:{" "}
+                    <span className="font-medium text-primary">
+                      {personas.find(p => p.id === selectedPersona)?.name}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* Interactive Demo */}
@@ -124,6 +265,30 @@ const Demo = () => {
                   )}
                 </p>
               </div>
+
+              {/* Live Transcription */}
+              {demoStarted && (
+                <div className="animate-fade-in">
+                  <div className="border-t border-muted pt-6">
+                    <h3 className="text-lg font-semibold mb-3 text-center">Live Transcription</h3>
+                    <div className="bg-muted/30 rounded-lg p-4 min-h-[120px] max-h-[300px] overflow-y-auto">
+                      {transcription ? (
+                        <div className="space-y-2">
+                          {transcription.split('\n').map((line, index) => (
+                            <p key={index} className="text-sm leading-relaxed">
+                              {line}
+                            </p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground text-center italic">
+                          Waiting for call transcription...
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
