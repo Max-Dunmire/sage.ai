@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* Sage.ai Brand Colors */
+    --background: 0 0% 100%;
+    --foreground: 0 0% 15%;
+
+    --card: 0 0% 99%;
+    --card-foreground: 0 0% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 15%;
+
+    /* Sage Green Primary */
+    --primary: 160 28% 60%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Light Gray Secondary */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 15%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    /* Darker Sage Accent */
+    --accent: 160 35% 45%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 160 28% 60%;
+
+    --radius: 0.75rem;
+
+    /* Custom Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(160, 30%, 96%), hsl(160, 20%, 98%));
+    --gradient-card: linear-gradient(180deg, hsl(0, 0%, 100%), hsl(160, 15%, 98%));
+    --gradient-sage: linear-gradient(135deg, hsl(160, 28%, 60%), hsl(160, 35%, 50%));
+    
+    /* Shadows */
+    --shadow-soft: 0 2px 20px rgba(0, 0, 0, 0.04);
+    --shadow-hover: 0 8px 30px rgba(127, 182, 133, 0.15);
+  }
+
+  .dark {
+    --background: 160 10% 8%;
+    --foreground: 0 0% 95%;
+
+    --card: 160 10% 10%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 160 10% 10%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 160 28% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 160 8% 15%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 160 8% 15%;
+    --muted-foreground: 0 0% 60%;
+
+    --accent: 160 30% 40%;
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 160 8% 20%;
+    --input: 160 8% 20%;
+    --ring: 160 28% 55%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+}
+
+@layer utilities {
+  .bg-gradient-hero {
+    background: var(--gradient-hero);
+  }
+  
+  .bg-gradient-card {
+    background: var(--gradient-card);
+  }
+  
+  .bg-gradient-sage {
+    background: var(--gradient-sage);
+  }
+
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+
+  .shadow-hover {
+    box-shadow: var(--shadow-hover);
+  }
+
+  .animate-wave {
+    animation: wave 2s ease-in-out infinite;
+  }
+
+  @keyframes wave {
+    0%, 100% {
+      transform: scaleY(1);
+    }
+    50% {
+      transform: scaleY(1.5);
+    }
+  }
+}
