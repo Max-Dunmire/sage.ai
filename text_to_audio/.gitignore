@@ -1,0 +1,20 @@
+# API Keys and Environment
+.env
+.env.local
+
+# Output files
+*.wav
+*.mp3
+test-output.*
+
+# Node modules (if you add dependencies later)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp

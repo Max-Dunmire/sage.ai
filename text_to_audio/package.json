@@ -1,0 +1,16 @@
+{
+  "name": "fish-audio-twilio-simple",
+  "version": "1.0.0",
+  "description": "Simple Fish Audio text-to-speech for Twilio",
+  "main": "textToAudio-no-deps.js",
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "fish-audio",
+    "twilio",
+    "text-to-speech"
+  ],
+  "author": "",
+  "license": "MIT"
+}
