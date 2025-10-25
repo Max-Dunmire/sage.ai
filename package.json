@@ -1,0 +1,30 @@
+{
+  "name": "sage_ai",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node --env-file=.env server",
+    "dev": "node --watch --env-file=.env server"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Max-Dunmire/sage.ai.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/Max-Dunmire/sage.ai/issues"
+  },
+  "homepage": "https://github.com/Max-Dunmire/sage.ai#readme",
+  "dependencies": {
+    "@deepgram/sdk": "^4.11.2",
+    "express": "^5.1.0",
+    "http": "^0.0.1-security",
+    "twilio": "^5.10.3",
+    "ws": "^8.18.3"
+  }
+}
