@@ -317,15 +317,15 @@ class MediaStream {
 
     try {
       this.isThrottled = true;
-      console.log(`USER: ${text}`)
+      console.log(`USER: ${assembled}`)
 
       currentTranscript.push({
         role: "user",
-        message: text,
+        message: assembled,
         timestamp: new Date().toISOString(),
       });
 
-      const { reply } = await sendTurn({text});
+      const { reply } = await sendTurn({assembled});
 
       const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
       log(`Received WAV buffer, size: ${wavBuffer.length} bytes`);
