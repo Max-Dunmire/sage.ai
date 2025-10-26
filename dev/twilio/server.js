@@ -62,7 +62,6 @@ async function sendTurn({text}) {
     body: JSON.stringify({ text })
   });
   if (!r.ok) throw new Error(await r.text());
-          // Stream back to caller via Twilio WS
   return r.json();
 }
 
@@ -75,11 +74,16 @@ class MediaStream {
     this.dgConn = null;
     this.streamSid = null;
     this.hasSeenMedia = false;
-    this.throttled = false;
+    
+    this.partialText = ""; 
+    this.finalText = "";
+    this.isThrottled = false;
+    this.flushing = false;
+    this.lastFlushedHash = "";
   }
 
   async openDeepgram() {
-    this.buffer = [];               // collect text for the current turn
+    this.buffer = [];
     this.speaking = false;
 
     this.dgConn = dg.listen.live({
@@ -101,18 +105,18 @@ class MediaStream {
 
     this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
       const alt = evt?.channel?.alternatives?.[0];
-      const text = alt?.transcript?.trim();
+      const text = alt?.transcript?.trim() || "";
       if (!text) return;
 
-      this.buffer.push(text);
-
-      if (evt.speech_final === true) {
-        await this.flushTurn();
+      if (evt.is_final === true) {
+        this.finalText = text;
+      } else {
+        this.partialText = text;
       }
     });
 
     this.dgConn.on(LiveTranscriptionEvents.UtteranceEnd, async () => {
-      await this.flushTurn();
+      await this._maybeFlush("utteranceEnd");
     });
 
     this.dgConn.on(LiveTranscriptionEvents.Error, (e) => {
@@ -128,12 +132,26 @@ class MediaStream {
     console.log("Deepgram live connected");
   }
 
-  async flushTurn() {
-    if (this.isThrottled) return;
-    const text = (this.buffer || []).join(" ").trim();
-    this.buffer = [];
-    this.speaking = false;
-    if (!text) return;
+  async _maybeFlush(reason) {
+    if (this.flushing || this.isThrottled) return;
+    this.flushing = true;
+
+    const text = (this.finalText || this.partialText || "").trim();
+
+    this.finalText = "";
+    this.partialText = "";
+
+    if (!text) {
+      this.flushing = false;
+      return;
+    }
+
+    const hash = text + "::" + reason;
+    if (this.lastFlushedHash === hash) {
+      this.flushing = false;
+      return;
+    }
+    this.lastFlushedHash = hash;
 
     try {
       this.isThrottled = true;
@@ -144,6 +162,7 @@ class MediaStream {
       console.error("sendTurn failed:", e);
     } finally {
       setTimeout(() => { this.isThrottled = false; }, 400);
+      this.flushing = false;
     }
   }
 
