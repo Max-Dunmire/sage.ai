@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Phone, Mic, MicOff, Volume2, VolumeX, User } from "lucide-react";
+import { Phone, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import GoogleCalendar from "@/components/GoogleCalendar";
 
 type PersonaType = "drMarkovitz" | "kimberly" | "stacy" | null;
 
@@ -12,8 +13,6 @@ interface TranscriptEntry {
 }
 
 const Demo = () => {
-  const [isListening, setIsListening] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [demoStarted, setDemoStarted] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType>(null);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
@@ -67,7 +66,7 @@ const Demo = () => {
 
   // Poll for transcript updates when demo is started
   useEffect(() => {
-    if (demoStarted && isListening) {
+    if (demoStarted) {
       // Fetch immediately
       fetchTranscript();
 
@@ -82,14 +81,13 @@ const Demo = () => {
         }
       };
     }
-  }, [demoStarted, isListening]);
+  }, [demoStarted]);
 
   const handlePersonaChange = (personaId: PersonaType) => {
     setSelectedPersona(personaId);
     // Reset demo when switching personas
     if (demoStarted) {
       setDemoStarted(false);
-      setIsListening(false);
       resetTranscript();
     }
   };
@@ -105,22 +103,22 @@ const Demo = () => {
 
   const demoScenarios = [
     {
-      caller: "Unknown Number",
-      scenario: "Spam Detection",
-      response: "Sage.ai automatically screens and blocks this spam caller",
-      action: "Blocked",
-    },
-    {
-      caller: "John from Acme Corp",
-      scenario: "Meeting Request",
-      response: "I've checked your calendar and scheduled a meeting for Tuesday at 2 PM",
+      caller: "Dr. Patterson's Office",
+      scenario: "Appointment Scheduling",
+      response: "I've checked your calendar and booked your appointment for Monday at 10 AM",
       action: "Scheduled",
     },
     {
+      caller: "John from Acme Corp",
+      scenario: "Meeting Rescheduling",
+      response: "I found an opening on Wednesday at 3 PM and moved your meeting there",
+      action: "Rescheduled",
+    },
+    {
       caller: "Sarah Johnson",
-      scenario: "Important Contact",
-      response: "I'll connect you immediately - this is a priority contact",
-      action: "Connected",
+      scenario: "Availability Check",
+      response: "You're available Thursday afternoon. I've sent your open time slots via text",
+      action: "Confirmed",
     },
   ];
 
@@ -220,121 +218,51 @@ const Demo = () => {
                 </Button>
               </div>
 
-              {/* Selected Persona Display */}
-              {demoStarted && selectedPersona && (
-                <div className="text-center animate-fade-in">
-                  <p className="text-sm text-muted-foreground">
-                    Demo started with:{" "}
-                    <span className="font-medium text-primary">
-                      {personas.find(p => p.id === selectedPersona)?.name}
-                    </span>
-                  </p>
+              {/* Call Number Display - Shows after demo starts */}
+              {demoStarted && (
+                <div className="text-center animate-fade-in space-y-2">
+                  <div className="bg-gradient-sage rounded-lg px-6 py-4 text-center shadow-soft inline-block">
+                    <p className="text-primary-foreground font-semibold text-xl flex items-center justify-center gap-2">
+                      <Phone className="h-5 w-5" />
+                      Call (415) 466-8334
+                    </p>
+                  </div>
+                  {selectedPersona && (
+                    <p className="text-sm text-muted-foreground">
+                      Demo started with:{" "}
+                      <span className="font-medium text-primary">
+                        {personas.find(p => p.id === selectedPersona)?.name}
+                      </span>
+                    </p>
+                  )}
                 </div>
               )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Interactive Demo */}
-        <div className="max-w-4xl mx-auto mb-16">
-          <Card className="bg-gradient-card shadow-soft">
-            <CardHeader className="text-center">
-              <CardTitle className="text-2xl">Live Demo</CardTitle>
-              <CardDescription>
-                Simulate incoming calls and see how Sage.ai responds
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Call Interface */}
-              <div className="flex justify-center items-center py-8">
-                <div className="relative">
-                  {/* Animated rings when listening */}
-                  {isListening && (
+        {/* Interactive Demo - Side by Side Layout */}
+        <div className="max-w-7xl mx-auto mb-16">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Live Demo Section */}
+            <Card className="bg-gradient-card shadow-soft">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl">Live Transcript</CardTitle>
+                <CardDescription>
+                  Real-time conversation between caller and Sage.ai
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {error && (
+                  <div className="bg-destructive/10 border border-destructive/50 rounded-lg p-3 mb-4">
+                    <p className="text-sm text-destructive">{error}</p>
+                  </div>
+                )}
+
+                {/* Transcript Container */}
+                <div className="bg-muted/30 rounded-lg p-6 min-h-[500px] flex flex-col">
+                  {demoStarted ? (
                     <>
-                      <div className="absolute inset-0 rounded-full bg-primary/20 animate-ping" />
-                      <div className="absolute inset-0 rounded-full bg-primary/10 animate-pulse" />
-                    </>
-                  )}
-
-                  {/* Main call button */}
-                  <button
-                    onClick={() => setIsListening(!isListening)}
-                    className={`relative h-24 w-24 rounded-full flex items-center justify-center transition-all duration-300 ${
-                      isListening
-                        ? "bg-gradient-sage scale-110 shadow-hover"
-                        : "bg-primary hover:scale-105 shadow-soft"
-                    }`}
-                  >
-                    <Phone className={`h-10 w-10 text-primary-foreground ${isListening ? 'animate-pulse' : ''}`} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Sound Wave Animation */}
-              {isListening && (
-                <div className="flex justify-center items-center space-x-1 py-4">
-                  {[...Array(7)].map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-1 bg-primary rounded-full animate-wave"
-                      style={{
-                        height: `${15 + Math.abs(3 - i) * 8}px`,
-                        animationDelay: `${i * 0.1}s`,
-                      }}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {/* Controls */}
-              <div className="flex justify-center gap-4">
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="gap-2"
-                >
-                  {isMuted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
-                  {isMuted ? "Unmute" : "Mute"}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  className="gap-2"
-                >
-                  {isListening ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-                  Microphone
-                </Button>
-              </div>
-
-              {/* Status */}
-              <div className="text-center">
-                <p className="text-lg font-medium">
-                  {isListening ? (
-                    <>
-                      <span className="text-primary">Sage.ai is listening...</span>
-                      {isCallActive && <p className="text-sm text-muted-foreground mt-1">(Call detected)</p>}
-                    </>
-                  ) : (
-                    <span className="text-muted-foreground">Click the phone to start monitoring</span>
-                  )}
-                </p>
-              </div>
-
-              {/* Live Transcription - Sliding Window */}
-              {demoStarted && (
-                <div className="animate-fade-in">
-                  <div className="border-t border-muted pt-6">
-                    <h3 className="text-lg font-semibold mb-3 text-center">Live Call Transcript</h3>
-
-                    {error && (
-                      <div className="bg-destructive/10 border border-destructive/50 rounded-lg p-3 mb-4">
-                        <p className="text-sm text-destructive">{error}</p>
-                      </div>
-                    )}
-
-                    {/* Fixed height container - shows max 5 messages */}
-                    <div className="bg-muted/30 rounded-lg p-4 h-[320px] flex flex-col">
                       {transcript && transcript.length > 0 ? (
                         <>
                           {/* Scrolling message area */}
@@ -371,40 +299,49 @@ const Demo = () => {
                           </div>
 
                           {/* Message counter at bottom */}
-                          <div className="text-xs text-muted-foreground text-center pt-2 border-t border-muted/50">
+                          <div className="text-xs text-muted-foreground text-center pt-4 border-t border-muted/50 mt-4">
                             Message {Math.min(transcript.length, 5)} of {transcript.length}
                           </div>
                         </>
                       ) : (
                         <div className="flex items-center justify-center h-full">
                           <div className="text-center">
-                            <p className="text-sm text-muted-foreground italic mb-2">
-                              {isListening
-                                ? "Waiting for incoming call..."
-                                : "Press the phone button and make a call to begin"}
+                            <p className="text-lg text-muted-foreground italic mb-2">
+                              Transcript on standby
                             </p>
-                            {isListening && (
-                              <div className="flex justify-center gap-1">
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
-                                <div
-                                  className="w-2 h-2 bg-primary rounded-full animate-pulse"
-                                  style={{ animationDelay: "0.1s" }}
-                                ></div>
-                                <div
-                                  className="w-2 h-2 bg-primary rounded-full animate-pulse"
-                                  style={{ animationDelay: "0.2s" }}
-                                ></div>
-                              </div>
-                            )}
+                            <div className="flex justify-center gap-1 mt-4">
+                              <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                              <div
+                                className="w-2 h-2 bg-primary rounded-full animate-pulse"
+                                style={{ animationDelay: "0.2s" }}
+                              ></div>
+                              <div
+                                className="w-2 h-2 bg-primary rounded-full animate-pulse"
+                                style={{ animationDelay: "0.4s" }}
+                              ></div>
+                            </div>
                           </div>
                         </div>
                       )}
+                    </>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <p className="text-lg text-muted-foreground">
+                          Select a persona and click "Begin Demo" to start
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+
+            {/* Google Calendar Section */}
+            <div className="animate-fade-in">
+              <GoogleCalendar isActive={demoStarted} />
+            </div>
+          </div>
         </div>
 
         {/* Demo Scenarios */}

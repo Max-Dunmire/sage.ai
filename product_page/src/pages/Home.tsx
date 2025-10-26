@@ -57,7 +57,7 @@ const Home = () => {
                             <div className="h-12 w-12 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
                                 <Phone className="h-6 w-6 text-primary" />
                             </div>
-                            <h3 className="text-xl font-semibold mb-2">Smart Screening</h3>
+                            <h3 className="text-xl font-semibold mb-2">Digital Secretary</h3>
                             <p className="text-muted-foreground">
                                 Filters spam and prioritizes important calls automatically
                             </p>

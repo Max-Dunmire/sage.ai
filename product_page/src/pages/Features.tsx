@@ -1,12 +1,7 @@
-import { Phone, Calendar, MessageSquare, UserCheck, Database, Zap } from "lucide-react";
+import { Calendar, MessageSquare, UserCheck } from "lucide-react";
 
 const Features = () => {
   const features = [
-    {
-      icon: Phone,
-      title: "Call Screening",
-      description: "Intelligent AI screens every call, filtering spam and prioritizing important contacts. You'll never miss what matters.",
-    },
     {
       icon: Calendar,
       title: "Smart Scheduling",
@@ -21,16 +16,6 @@ const Features = () => {
       icon: UserCheck,
       title: "Human-Tone Replies",
       description: "Natural, professional voice responses that sound authentically human — making every caller feel valued and heard.",
-    },
-    {
-      icon: Database,
-      title: "CRM Integration",
-      description: "Seamlessly connects with your existing CRM tools to log calls, update contacts, and track important interactions.",
-    },
-    {
-      icon: Zap,
-      title: "Instant Notifications",
-      description: "Get real-time alerts for urgent calls and automatic summaries of every conversation delivered to your inbox.",
     },
   ];
 
