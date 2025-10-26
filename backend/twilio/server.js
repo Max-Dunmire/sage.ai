@@ -325,7 +325,7 @@ class MediaStream {
         timestamp: new Date().toISOString(),
       });
 
-      const { reply } = await sendTurn({assembled});
+      const { reply } = await sendTurn({ text: assembled, stream_sid: this.streamSid });
 
       console.log(`SECRETARY: ${reply}`);
 
