@@ -62,6 +62,7 @@ async function sendTurn({text}) {
     body: JSON.stringify({ text })
   });
   if (!r.ok) throw new Error(await r.text());
+          // Stream back to caller via Twilio WS
   return r.json();
 }
 
@@ -85,6 +86,10 @@ class MediaStream {
       encoding: "mulaw",
       sample_rate: 8000,
       channels: 1,
+      endpointing: 1200,
+      utterance_end_ms: 1200,
+      vad_events: true,
+      utterances: true
     });
     
     this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
