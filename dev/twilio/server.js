@@ -3,12 +3,11 @@ const path = require("path");
 var http = require("http");
 const fetch = require("node-fetch");
 const FormData = require("form-data");
-const textToAudio = require("./textToAudio")
+const textToAudio = require("./textToAudio.js");
+const { streamWavViaFfmpeg } = require('./ffmpegMuLawStreamer');
 var HttpDispatcher = require("httpdispatcher");
 var WebSocketServer = require("websocket").server;
 const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
-const WaveFile = require("wavefile").WaveFile;
-const MuLaw = require("alawmulaw").MuLaw;
 
 const dg = createClient(process.env.DEEPGRAM_API_KEY);
 const HTTP_SERVER_PORT = 8081;
@@ -241,7 +240,7 @@ class MediaStream {
     this.dgConn = null;
     this.streamSid = null;
     this.hasSeenMedia = false;
-    this.throttled = false;
+    this.isThrottled = false;
   }
 
   async openDeepgram() {
@@ -276,125 +275,22 @@ class MediaStream {
           const { reply } = await sendTurn({text});
 
           const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
-          log(`Received WAV buffer, size: ${wavBuffer.length} bytes`);
 
-          // Use optimized library-based conversion (wavefile + alawmulaw)
-          const muLawAudio = wavToMuLawOptimized(wavBuffer);
-          const durationSeconds = muLawAudio.length / 8000;
-
-          // ===== COMPREHENSIVE AUDIO DIAGNOSTICS =====
-
-          // 1. Extract original PCM16 from WAV
-          const pcm16Data = wavToPCM16(wavBuffer);
-          const pcm16Array = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-
-          // 2. Calculate audio statistics BEFORE resampling
-          let minBefore = pcm16Array[0], maxBefore = pcm16Array[0];
-          let sumBefore = 0, sumSquaresBefore = 0;
-          for (let i = 0; i < pcm16Array.length; i++) {
-            const val = pcm16Array[i];
-            minBefore = Math.min(minBefore, val);
-            maxBefore = Math.max(maxBefore, val);
-            sumBefore += val;
-            sumSquaresBefore += val * val;
+          async function speak(ws, streamSid, fishWavBuffer) {
+            try {
+              await streamWavViaFfmpeg(ws, streamSid, fishWavBuffer, {
+                ffmpegPath: 'ffmpeg',     // or an absolute path if needed
+                useMarks: false,          // flip to true if you want flow-control marks
+                markEveryFrames: 50,      // ~1s between marks
+              });
+            } catch (err) {
+              console.error('TTS stream error:', err);
+            }
           }
-          const meanBefore = sumBefore / pcm16Array.length;
-          const rmsBefore = Math.sqrt(sumSquaresBefore / pcm16Array.length);
-
-          log(`=== AUDIO STATS BEFORE RESAMPLING (44.1kHz) ===`);
-          log(`  Samples: ${pcm16Array.length}, Peak: ${maxBefore}, Min: ${minBefore}, RMS: ${rmsBefore.toFixed(0)}, Mean: ${meanBefore.toFixed(0)}`);
-          log(`  First 8 samples: [${Array.from(pcm16Array.slice(0, 8)).join(', ')}]`);
-
-          // 3. Resample and check statistics AFTER resampling
-          const resampled = resamplePCM16(pcm16Data, 44100, 8000);
-          const resampledArray = new Int16Array(resampled.buffer, resampled.byteOffset, resampled.length / 2);
-
-          let minAfter = resampledArray[0], maxAfter = resampledArray[0];
-          let sumAfter = 0, sumSquaresAfter = 0;
-          for (let i = 0; i < resampledArray.length; i++) {
-            const val = resampledArray[i];
-            minAfter = Math.min(minAfter, val);
-            maxAfter = Math.max(maxAfter, val);
-            sumAfter += val;
-            sumSquaresAfter += val * val;
-          }
-          const meanAfter = sumAfter / resampledArray.length;
-          const rmsAfter = Math.sqrt(sumSquaresAfter / resampledArray.length);
-
-          log(`=== AUDIO STATS AFTER RESAMPLING (8kHz) ===`);
-          log(`  Samples: ${resampledArray.length}, Peak: ${maxAfter}, Min: ${minAfter}, RMS: ${rmsAfter.toFixed(0)}, Mean: ${meanAfter.toFixed(0)}`);
-          log(`  Volume loss from resampling: ${(((rmsBefore - rmsAfter) / rmsBefore) * 100).toFixed(1)}%`);
-          log(`  First 8 samples: [${Array.from(resampledArray.slice(0, 8)).join(', ')}]`);
-
-          // 4. Check statistics AFTER amplification
-          // Reduced gain from 4.0 to 2.0 to prevent hard-clipping at INT16 boundaries
-          // This eliminates "catches" and click artifacts in audio playback
-          const amplified = amplifyAudio(resampled, 2.0);
-          const amplifiedArray = new Int16Array(amplified.buffer, amplified.byteOffset, amplified.length / 2);
-
-          let minAmp = amplifiedArray[0], maxAmp = amplifiedArray[0];
-          let sumAmp = 0, sumSquaresAmp = 0;
-          for (let i = 0; i < amplifiedArray.length; i++) {
-            const val = amplifiedArray[i];
-            minAmp = Math.min(minAmp, val);
-            maxAmp = Math.max(maxAmp, val);
-            sumAmp += val;
-            sumSquaresAmp += val * val;
-          }
-          const rmsAmp = Math.sqrt(sumSquaresAmp / amplifiedArray.length);
-
-          log(`=== AUDIO STATS AFTER AMPLIFICATION (2x) ===`);
-          log(`  Peak: ${maxAmp}, Min: ${minAmp}, RMS: ${rmsAmp.toFixed(0)}, Clipping: ${maxAmp > 32767 ? 'YES - DATA LOSS!' : 'No'}`);
-          log(`  First 8 samples: [${Array.from(amplifiedArray.slice(0, 8)).join(', ')}]`);
-
-          // 5. Test mu-law encoding/decoding roundtrip
-          // Test on the RESAMPLED (unclipped) audio to get accurate encoding fidelity
-          const testMulaw = muLawAudio[Math.floor(muLawAudio.length / 2)]; // Middle sample
-          const testDecoded = decodeMuLawToPCM16(Buffer.from([testMulaw]))[0];
-          // Use resampled value (before amplification) as the true original
-          const testOriginal = resampledArray[Math.floor(resampledArray.length / 2)];
-          const absOriginal = Math.abs(testOriginal);
-          const absDecoded = Math.abs(testDecoded);
-          const encodingError = absOriginal > 0 ? ((Math.abs(absOriginal - absDecoded) / absOriginal) * 100).toFixed(1) : "N/A";
-
-          log(`=== MU-LAW ENCODING TEST ===`);
-          log(`  Middle sample - Original: ${testOriginal}, Encoded then Decoded: ${testDecoded}, Error: ${encodingError}%`);
-
-          // 6. Check for clipping in mu-law output
-          let clippingCount = 0;
-          let minMulaw = muLawAudio[0], maxMulaw = muLawAudio[0];
-          for (let i = 0; i < muLawAudio.length; i++) {
-            minMulaw = Math.min(minMulaw, muLawAudio[i]);
-            maxMulaw = Math.max(maxMulaw, muLawAudio[i]);
-            // Check for potential extreme values
-            if (muLawAudio[i] === 0 || muLawAudio[i] === 255) clippingCount++;
-          }
-
-          log(`=== MU-LAW OUTPUT ANALYSIS ===`);
-          log(`  Byte range: ${minMulaw} to ${maxMulaw}, Extreme values: ${clippingCount}`);
-          log(`  First 16 mu-law bytes: [${Array.from(muLawAudio.slice(0, 16)).join(', ')}]`);
-
-          // Pad audio to multiple of 160 (Twilio chunk size)
-          const chunkSize = 160; // 20ms at 8kHz
-          const padded = Buffer.alloc(Math.ceil(muLawAudio.length / chunkSize) * chunkSize);
-          muLawAudio.copy(padded);
-
-          log(`Padded audio from ${muLawAudio.length} to ${padded.length} bytes (${Math.ceil(muLawAudio.length / chunkSize)} chunks)`);
-
-          let chunksSent = 0;
-          for (let i = 0; i < padded.length; i += chunkSize) {
-            const chunk = padded.slice(i, i + chunkSize);
-            chunksSent++;
-            this.connection.send(JSON.stringify({
-              event: "media",
-              streamSid: this.streamSid,
-              media: { payload: chunk.toString('base64') }
-            }));
-            await new Promise(r => setTimeout(r, 20)); // Respect timing
-          }
-          log(`Sent ${chunksSent} audio chunks (total ${padded.length} bytes) to Twilio`);
 
           console.log(`SECRETARY: ${reply}`);
+
+          await speak(this.connection, this.streamSid, wavBuffer);
 
           // Add AI response to transcript
           currentTranscript.push({
@@ -506,303 +402,12 @@ const MULAW_DECODE_TABLE = (() => {
   return table;
 })();
 
-// Mu-law encoding table for converting PCM16 to Mu-law
-const MULAW_ENCODE_TABLE = (() => {
-  const MULAW_MAX = 32635;
-  const MULAW_MIN = -32768;
-  const table = new Uint8Array(65536);
-
-  for (let i = 0; i < 256; i++) {
-    const pcm = MULAW_DECODE_TABLE[i];
-    table[(pcm & 0xFFFF)] = i;
-  }
-
-  return table;
-})();
-
 function decodeMuLawToPCM16(muLawBuf) {
   const out = new Int16Array(muLawBuf.length);
   for (let i = 0; i < muLawBuf.length; i++) {
     out[i] = MULAW_DECODE_TABLE[muLawBuf[i]];
   }
   return out;
-}
-
-/**
- * Encode PCM16 audio to Mu-law format for Twilio
- * Standard G.711 μ-law encoding (ITU-T G.711)
- * @param {Int16Array|Buffer} pcm16Data - PCM16 audio data (8kHz, mono)
- * @returns {Buffer} Mu-law encoded data
- */
-function encodePCM16ToMuLaw(pcm16Data) {
-  // Convert Buffer to Int16Array if needed
-  let pcmArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    pcmArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const muLaw = Buffer.alloc(pcmArray.length);
-  const MULAW_MAX = 32635;
-  const MULAW_THRESHOLD = 132;
-
-  for (let i = 0; i < pcmArray.length; i++) {
-    let pcm = pcmArray[i];
-
-    // Get the sign of the sample
-    const sign = pcm < 0 ? 0x80 : 0x00;
-
-    // Get absolute value and work with positive numbers
-    if (pcm < 0) {
-      pcm = -pcm;
-    }
-
-    // Clamp to valid range
-    if (pcm > MULAW_MAX) {
-      pcm = MULAW_MAX;
-    }
-
-    // Apply bias
-    pcm = pcm + MULAW_THRESHOLD;
-
-    // Compute the exponent (segment)
-    // Find which segment this sample falls into
-    let exponent = 7;
-    for (let mask = 0x4000; mask > 0; mask >>= 1) {
-      if (pcm >= (mask << 1)) {
-        break;
-      }
-      exponent--;
-    }
-
-    // Extract the mantissa (lower 4 bits of the sample after shift)
-    const mantissa = (pcm >> (exponent + 3)) & 0x0F;
-
-    // Combine all parts: sign(1) + exponent(3) + mantissa(4)
-    // Then bitwise NOT for the final mu-law encoding
-    muLaw[i] = ~(sign | (exponent << 4) | mantissa) & 0xFF;
-  }
-
-  return muLaw;
-}
-
-/**
- * Extract PCM16 audio from WAV buffer (removes WAV header)
- * @param {Buffer} wavBuffer - Complete WAV file buffer
- * @returns {Buffer} Raw PCM16 audio data
- */
-function wavToPCM16(wavBuffer) {
-  // WAV header is 44 bytes, audio data starts after that
-  return wavBuffer.slice(44);
-}
-
-/**
- * Simple anti-aliasing low-pass filter for downsampling
- * @param {Int16Array} input - Input audio samples
- * @param {number} decimationFactor - How much to downsample (e.g., 5.5 for 44.1kHz to 8kHz)
- * @returns {Int16Array} Filtered audio
- */
-function applyAntiAliasingFilter(input, decimationFactor) {
-  const output = new Int16Array(input.length);
-  const windowSize = Math.ceil(decimationFactor * 2);
-
-  for (let i = 0; i < input.length; i++) {
-    let sum = 0;
-    let weight = 0;
-
-    // Simple moving average filter (crude but effective)
-    const start = Math.max(0, i - Math.floor(windowSize / 2));
-    const end = Math.min(input.length, i + Math.ceil(windowSize / 2));
-
-    for (let j = start; j < end; j++) {
-      sum += input[j];
-      weight++;
-    }
-
-    output[i] = Math.round(sum / weight);
-  }
-
-  return output;
-}
-
-/**
- * Resample PCM16 audio from one sample rate to another
- * Uses low-pass filtering before downsampling to prevent aliasing
- * @param {Buffer|Int16Array} pcm16Data - Input PCM16 audio
- * @param {number} inputSampleRate - Input sample rate (e.g., 44100)
- * @param {number} outputSampleRate - Output sample rate (e.g., 8000)
- * @returns {Buffer} Resampled PCM16 audio
- */
-function resamplePCM16(pcm16Data, inputSampleRate, outputSampleRate) {
-  // Convert Buffer to Int16Array if needed
-  let inputArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    inputArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  // Calculate resampling ratio
-  const ratio = inputSampleRate / outputSampleRate;
-
-  // Apply anti-aliasing filter if downsampling aggressively
-  let filtered = inputArray;
-  if (ratio > 2) {
-    log(`Applying anti-aliasing filter for downsampling ratio ${ratio.toFixed(2)}`);
-    filtered = applyAntiAliasingFilter(inputArray, ratio);
-  }
-
-  // Now do the resampling
-  const outputLength = Math.floor(filtered.length / ratio);
-  const output = new Int16Array(outputLength);
-
-  // Resample using linear interpolation on filtered data
-  for (let i = 0; i < outputLength; i++) {
-    const srcIndex = i * ratio;
-    const srcFloor = Math.floor(srcIndex);
-    const srcCeil = Math.min(srcFloor + 1, filtered.length - 1);
-    const fraction = srcIndex - srcFloor;
-
-    // Linear interpolation between two samples
-    output[i] = Math.round(
-      filtered[srcFloor] * (1 - fraction) + filtered[srcCeil] * fraction
-    );
-  }
-
-  return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
-}
-
-/**
- * Parse WAV header to get audio format information
- * @param {Buffer} wavBuffer - Complete WAV file buffer
- * @returns {Object} Audio format info {sampleRate, channels, bitsPerSample, dataSize}
- */
-function parseWavHeader(wavBuffer) {
-  if (wavBuffer.length < 44) {
-    throw new Error("WAV buffer too small, invalid WAV file");
-  }
-
-  // WAV header structure (simplified for standard PCM)
-  const sampleRate = wavBuffer.readUInt32LE(24);   // Bytes 24-27
-  const channels = wavBuffer.readUInt16LE(22);     // Bytes 22-23
-  const bitsPerSample = wavBuffer.readUInt16LE(34); // Bytes 34-35
-  const dataSize = wavBuffer.length - 44;          // Everything after header
-
-  return {
-    sampleRate,
-    channels,
-    bitsPerSample,
-    dataSize,
-    numSamples: Math.floor(dataSize / (bitsPerSample / 8) / channels)
-  };
-}
-
-/**
- * Amplify PCM16 audio to increase volume
- * @param {Buffer|Int16Array} pcm16Data - Input PCM16 audio
- * @param {number} gainFactor - Amplification factor (1.0 = no change, 4.0 = 4x louder)
- * @returns {Buffer} Amplified PCM16 audio
- */
-function amplifyAudio(pcm16Data, gainFactor = 4.0) {
-  let pcmArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    pcmArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const output = new Int16Array(pcmArray.length);
-  for (let i = 0; i < pcmArray.length; i++) {
-    // Amplify with clipping protection
-    const amplified = pcmArray[i] * gainFactor;
-    output[i] = Math.max(-32768, Math.min(32767, amplified));
-  }
-
-  return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
-}
-
-/**
- * Convert WAV audio to Mu-law format using wavefile library (BEST QUALITY)
- * This uses battle-tested libraries instead of custom implementation
- * @param {Buffer} wavBuffer - Complete WAV file buffer from Fish Audio
- * @returns {Buffer} Mu-law encoded audio at 8kHz
- */
-function wavToMuLawOptimized(wavBuffer) {
-  try {
-    // Use wavefile library for parsing and resampling
-    const wav = new WaveFile(wavBuffer);
-
-    // Get original info
-    const originalRate = wav.fmt.sampleRate;
-    const originalChannels = wav.fmt.numChannels;
-    log(`WAV Info: ${originalRate}Hz, ${originalChannels} channels, ${wav.fmt.bitsPerSample} bits/sample`);
-
-    // Resample to 8kHz if needed (wavefile uses high-quality resampling)
-    if (originalRate !== 8000) {
-      log(`Resampling from ${originalRate}Hz to 8000Hz using wavefile library`);
-      wav.toSampleRate(8000);
-    }
-
-    // Convert to PCM16 if not already (ensures we have raw audio data)
-    if (wav.fmt.formatCode !== 1) { // 1 = PCM
-      wav.toRawFile();
-    }
-
-    // Get PCM16 samples
-    const pcm16Buffer = Buffer.from(wav.data.samples.buffer, wav.data.samples.byteOffset, wav.data.samples.byteLength);
-    const pcm16Array = new Int16Array(pcm16Buffer.buffer, pcm16Buffer.byteOffset, pcm16Buffer.length / 2);
-
-    // Amplify carefully - use 1.5x to be safe
-    const gainFactor = 1.5;
-    const amplified = new Int16Array(pcm16Array.length);
-    let maxVal = 0;
-
-    for (let i = 0; i < pcm16Array.length; i++) {
-      const val = pcm16Array[i] * gainFactor;
-      // Soft clipping instead of hard clipping
-      const clipped = Math.max(-32768, Math.min(32767, val));
-      amplified[i] = clipped;
-      maxVal = Math.max(maxVal, Math.abs(clipped));
-    }
-
-    log(`Applied ${gainFactor}x audio amplification, max peak: ${maxVal}`);
-
-    // Encode to mu-law using alawmulaw library
-    const muLawBuffer = Buffer.alloc(amplified.length);
-    for (let i = 0; i < amplified.length; i++) {
-      muLawBuffer[i] = MuLaw.encode(amplified[i]);
-    }
-
-    log(`Encoded to mu-law, size: ${muLawBuffer.length} bytes, duration: ${(muLawBuffer.length / 8000).toFixed(2)}s`);
-    return muLawBuffer;
-
-  } catch (err) {
-    log(`Error in wavToMuLawOptimized: ${err.message}, falling back to original implementation`);
-    return wavToMuLaw(wavBuffer);
-  }
-}
-
-/**
- * Convert WAV audio to Mu-law format (Twilio compatible)
- * @param {Buffer} wavBuffer - Complete WAV file buffer from Fish Audio
- * @returns {Buffer} Mu-law encoded audio at 8kHz
- */
-function wavToMuLaw(wavBuffer) {
-  // Parse WAV header to get actual sample rate
-  const wavInfo = parseWavHeader(wavBuffer);
-  log(`WAV Info: ${wavInfo.sampleRate}Hz, ${wavInfo.channels} channels, ${wavInfo.bitsPerSample} bits/sample`);
-
-  const pcm16 = wavToPCM16(wavBuffer);
-
-  // Only resample if input sample rate is not 8kHz
-  let audioToEncode = pcm16;
-  if (wavInfo.sampleRate !== 8000) {
-    log(`Resampling from ${wavInfo.sampleRate}Hz to 8000Hz`);
-    audioToEncode = resamplePCM16(pcm16, wavInfo.sampleRate, 8000);
-  }
-
-  // Amplify audio before mu-law encoding (aggressive downsampling loses volume)
-  // Reduced gain from 4.0 to 2.0 to prevent hard-clipping at INT16 boundaries
-  // Hard-clipping causes "catches" and click artifacts in audio playback
-  const amplified = amplifyAudio(audioToEncode, 2.0);
-  log(`Applied 2x audio amplification to compensate for resampling`);
-
-  return encodePCM16ToMuLaw(amplified);
 }
 
 function pcm16ToWav(pcmBuf, sampleRate) {
@@ -830,4 +435,3 @@ function pcm16ToWav(pcmBuf, sampleRate) {
 }
 
 wsserver.listen(HTTP_SERVER_PORT, function () { console.log("Server listening on: http://localhost:%s", HTTP_SERVER_PORT); });
-
