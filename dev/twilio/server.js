@@ -79,6 +79,9 @@ class MediaStream {
   }
 
   async openDeepgram() {
+    this.buffer = [];               // collect text for the current turn
+    this.speaking = false;
+
     this.dgConn = dg.listen.live({
       model: "nova-3",
       punctuate: true,
@@ -91,28 +94,25 @@ class MediaStream {
       vad_events: true,
       utterances: true
     });
-    
-    this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
-      if (this.isThrottled) return;
-      try {
-        const alt = evt?.channel?.alternatives?.[0];
-        if (!alt) return;
-        const text = alt.transcript || "";
-        if (!text) return;
-        const isFinal = evt?.is_final;
-        if (isFinal) {
-	  this.isThrottled = true;
-          console.log(`USER: ${text}`)
-          
-          const { reply } = await sendTurn({text});
-          console.log(`SECRETARY: ${reply}`);
 
-          await sleep(2500);
-	  this.isThrottled = false;
-        }
-      } catch (err) {
-        console.log('wtf broken')
+    this.dgConn.on(LiveTranscriptionEvents.SpeechStarted, () => {
+      this.speaking = true;
+    });
+
+    this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
+      const alt = evt?.channel?.alternatives?.[0];
+      const text = alt?.transcript?.trim();
+      if (!text) return;
+
+      this.buffer.push(text);
+
+      if (evt.speech_final === true) {
+        await this.flushTurn();
       }
+    });
+
+    this.dgConn.on(LiveTranscriptionEvents.UtteranceEnd, async () => {
+      await this.flushTurn();
     });
 
     this.dgConn.on(LiveTranscriptionEvents.Error, (e) => {
@@ -124,10 +124,27 @@ class MediaStream {
       this.dgConn = null;
     });
 
-    await new Promise((resolve) =>
-      this.dgConn.on(LiveTranscriptionEvents.Open, resolve)
-    );
+    await new Promise((resolve) => this.dgConn.on(LiveTranscriptionEvents.Open, resolve));
     console.log("Deepgram live connected");
+  }
+
+  async flushTurn() {
+    if (this.isThrottled) return;
+    const text = (this.buffer || []).join(" ").trim();
+    this.buffer = [];
+    this.speaking = false;
+    if (!text) return;
+
+    try {
+      this.isThrottled = true;
+      console.log(`USER: ${text}`);
+      const { reply } = await sendTurn({ text });
+      console.log(`SECRETARY: ${reply}`);
+    } catch (e) {
+      console.error("sendTurn failed:", e);
+    } finally {
+      setTimeout(() => { this.isThrottled = false; }, 400);
+    }
   }
 
   async processMessage(message) {
