@@ -1,0 +1,29 @@
+{
+  "name": "connect-basic",
+  "version": "0.0.1",
+  "description": "Basic Connet Streams demo",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --watch --env-file=.env server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": ""
+  },
+  "homepage": "",
+  "dependencies": {
+    "@deepgram/sdk": "^4.11.2",
+    "alawmulaw": "^6.0.0",
+    "dotenv": "^17.2.3",
+    "form-data": "^4.0.4",
+    "httpdispatcher": "^2.1.2",
+    "node-fetch": "^2.7.0",
+    "wavefile": "^11.0.0",
+    "websocket": "^1.0.28"
+  }
+}
