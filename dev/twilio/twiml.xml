@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://divulsive-necole-subproctorial.ngrok-free.dev/media" />
+    <Stream url="wss://sage.munkey.cc/media" />
   </Connect>
 </Response>
