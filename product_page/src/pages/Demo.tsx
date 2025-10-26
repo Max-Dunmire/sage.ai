@@ -21,7 +21,7 @@ const Demo = () => {
   const [error, setError] = useState<string>("");
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const API_BASE_URL = "http://localhost:8080";
+  const API_BASE_URL = "http://localhost:8081";
 
   const personas = [
     { id: "drMarkovitz" as const, name: "Dr. Markovitz", subtitle: "Medical Professional" },
@@ -45,7 +45,7 @@ const Demo = () => {
       }
     } catch (error) {
       console.error("Error fetching transcript:", error);
-      setError("Failed to connect to server. Make sure it's running on http://localhost:8080");
+      setError("Failed to connect to server. Make sure it's running on http://localhost:3001");
     }
   };
 
