@@ -493,7 +493,7 @@ class MediaStream {
   }
 
 
-  enqueueReply(reply) {
+  _enqueueReply(reply) {
     this.playQueue.push(reply);
     if (!this.playing) void this._drainPlaybackQueue();
   }
