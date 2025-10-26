@@ -17,6 +17,10 @@ var wsserver = http.createServer(handleRequest);
 var currentTranscript = [];
 var isCallActive = false;
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 var mediaws = new WebSocketServer({
   httpServer: wsserver,
   autoAcceptConnections: true,
@@ -234,6 +238,7 @@ class MediaStream {
     this.dgConn = null;
     this.streamSid = null;
     this.hasSeenMedia = false;
+    this.throttled = false;
   }
 
   async openDeepgram() {
@@ -247,6 +252,7 @@ class MediaStream {
     });
     
     this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
+      if (this.isThrottled) return;
       try {
         const alt = evt?.channel?.alternatives?.[0];
         if (!alt) return;
@@ -254,6 +260,7 @@ class MediaStream {
         if (!text) return;
         const isFinal = evt?.is_final;
         if (isFinal) {
+	  this.isThrottled = true;
           console.log(`USER: ${text}`)
 
           // Add user message to transcript
@@ -274,6 +281,8 @@ class MediaStream {
           });
 
           await new Promise(r => setTimeout(r, 2000));
+          await sleep(2500);
+	  this.isThrottled = false;
         }
       } catch (err) {
         console.log('wtf broken')
@@ -394,3 +403,4 @@ function pcm16ToWav(pcmBuf, sampleRate) {
 }
 
 wsserver.listen(HTTP_SERVER_PORT, function () { console.log("Server listening on: http://localhost:%s", HTTP_SERVER_PORT); });
+
