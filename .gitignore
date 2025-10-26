@@ -3,6 +3,8 @@ service_keys.json
 __pycache__/
 dev/twilio/scripts/creds/
 dev/twilio/scripts/Data.env
+backend/twilio/scripts/creds/
+service_keys.json
 
 #Logs
 logs

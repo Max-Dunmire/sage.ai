@@ -11,11 +11,11 @@ const WaveFile = require("wavefile").WaveFile;
 const MuLaw = require("alawmulaw").MuLaw;
 const { google } = require("googleapis");
 
-et auth;
+let auth;
 let calendar;
 
 try {
-  const serviceAccountPath = './service_key.json';
+  const serviceAccountPath = './service_keys.json';
   const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
 
   auth = new google.auth.GoogleAuth({
@@ -31,7 +31,7 @@ try {
 }
 
 // Calendar ID from environment or use primary
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID  'primary';
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
 
 const dg = createClient(process.env.DEEPGRAM_API_KEY);
 const HTTP_SERVER_PORT = 8081;
