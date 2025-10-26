@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require("fs");
 const path = require("path");
 var http = require("http");
@@ -47,6 +48,18 @@ mediaws.on("connect", function (connection) {
   new MediaStream(connection);
 });
 
+async function sendTurn({text}) {
+  const r = await fetch("http://127.0.0.1:5001/turn", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-internal-secret": process.env.INTERNAL_SECRET
+    },
+    body: JSON.stringify({ text })
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
 
 class MediaStream {
   constructor(connection) {
@@ -63,22 +76,30 @@ class MediaStream {
     this.dgConn = dg.listen.live({
       model: "nova-3",
       punctuate: true,
-      interim_results: true,    // get partials
-      encoding: "mulaw",        // Twilio sends μ-law frames
-      sample_rate: 8000,        // Twilio uses 8kHz
-      channels: 1,              // mono; set 2 if you enabled dual-channel
+      interim_results: true,
+      encoding: "mulaw",
+      sample_rate: 8000,
+      channels: 1,
     });
-
-    // Log transcripts
-    this.dgConn.on(LiveTranscriptionEvents.Transcript, (evt) => {
-      // evt has channel.alternatives[0].transcript; check is_final for partials vs finals
-      const alt = evt?.channel?.alternatives?.[0];
-      if (!alt) return;
-      const text = alt.transcript || "";
-      if (!text) return;
-      const isFinal = evt?.is_final;
-      if (isFinal)
-        console.log(`${text}`);
+    
+    this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
+      try {
+        const alt = evt?.channel?.alternatives?.[0];
+        if (!alt) return;
+        const text = alt.transcript || "";
+        if (!text) return;
+        const isFinal = evt?.is_final;
+        if (isFinal) {
+          console.log(text)
+          
+          const { reply } = await sendTurn({
+            text
+          });
+          console.log(`${reply}`);
+        }
+      } catch (err) {
+        console.log('wtf')
+      }
     });
 
     this.dgConn.on(LiveTranscriptionEvents.Error, (e) => {
@@ -90,7 +111,6 @@ class MediaStream {
       this.dgConn = null;
     });
 
-    // Wait for socket open before sending audio
     await new Promise((resolve) =>
       this.dgConn.on(LiveTranscriptionEvents.Open, resolve)
     );
@@ -121,9 +141,8 @@ class MediaStream {
         log("From Twilio: first media frame");
       }
       if (this.dgConn) {
-        // Twilio sends base64 μ-law bytes; Deepgram expects raw bytes when encoding is set
         const bytes = Buffer.from(data.media.payload, "base64");
-        this.dgConn.send(bytes); // send binary audio to Deepgram
+        this.dgConn.send(bytes);
       }
       return;
     }
@@ -132,10 +151,9 @@ class MediaStream {
       log("From Twilio: mark", data);
       return;
     }
-
+    
     if (data.event === "stop" || data.event === "close" || data.event === "closed") {
-      log("From Twilio: stream ended");
-      //this.close();
+      log("From Twilio: stream ended", data);
       return;
     }
   }
@@ -143,17 +161,15 @@ class MediaStream {
   close() {
     try {
       if (this.dgConn) {
-        this.dgConn.finish(); // politely close live stream
+        this.dgConn.finish();
         this.dgConn = null;
       }
     } catch (e) {
-      // swallow
     }
     log("Server: Closed");
   }
 }
 
-/** --------- helpers (μ-law decode + WAV) --------- **/
 
 const MULAW_DECODE_TABLE = (() => {
   const table = new Int16Array(256);
