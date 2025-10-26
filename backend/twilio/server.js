@@ -481,18 +481,62 @@ class MediaStream {
     this.dgConn = null;
     this.streamSid = null;
     this.hasSeenMedia = false;
+
     this.partialText = "";
     this.finalSegments = [];
     this.lastFinalSeen = "";
-    this.isThrottled = false;
     this.flushing = false;
     this.lastFlushedText = "";
     this.isThrottled = false;
-    this.playing = false;     // a simple mutex for TTS playback
-    this.playQueue = [];      // FIFO queue of replies to speak
+
+    // Playback / TTS
+    this.playing = false;     // mutex: only one playback at a time
+    this.playQueue = [];      // FIFO of replies to speak
+
+    // Mark handling
+    this.pendingMarks = new Map(); // name -> resolver
+    this.speaking = false;
+    this.buffer = [];
   }
 
+  // ---------- small helpers ----------
+  _sleep(ms) {
+    return new Promise(r => setTimeout(r, ms));
+  }
 
+  async _sendPcmuSilenceMs(ms = 200) {
+    if (!this.connection || this.connection.connected === false) return;
+    const frames = Math.ceil(ms / 20);
+    const oneFrame = Buffer.alloc(160, 0xFF); // 20ms of PCMU silence @8kHz
+    for (let i = 0; i < frames; i++) {
+      this.connection.sendUTF(JSON.stringify({
+        event: "media",
+        streamSid: this.streamSid,
+        media: { payload: oneFrame.toString("base64") }
+      }));
+      await this._sleep(20);
+    }
+  }
+
+  _sendMarkAndWait(name) {
+    return new Promise((resolve) => {
+      if (!this.connection || this.connection.connected === false) return resolve();
+      // store resolver
+      this.pendingMarks.set(name, resolve);
+      // send mark to Twilio; Twilio will echo it back
+      this.connection.sendUTF(JSON.stringify({
+        event: "mark",
+        streamSid: this.streamSid,
+        mark: { name }
+      }));
+      // safety: never hang forever
+      setTimeout(() => {
+        if (this.pendingMarks.delete(name)) resolve();
+      }, 5000);
+    });
+  }
+
+  // ---------- reply queue ----------
   _enqueueReply(reply) {
     this.playQueue.push(reply);
     if (!this.playing) void this._drainPlaybackQueue();
@@ -506,37 +550,50 @@ class MediaStream {
       while (this.playQueue.length > 0) {
         const nextReply = this.playQueue.shift();
 
-        // TTS
+        // Generate TTS (WAV)
         const wavBuffer = await textToAudio(nextReply, process.env.FISH_API_KEY);
+        if (!wavBuffer || wavBuffer.length < 1000) {
+          console.warn("TTS returned empty/short audio, skipping");
+          continue;
+        }
 
         // Connection might be gone
         if (!this.connection || this.connection.connected === false) break;
 
-        // Stream audio to Twilio, await completion before next item
+        // Stream audio to Twilio; don't rely on internal marks
         await streamWavViaFfmpeg(this.connection, this.streamSid, wavBuffer, {
           ffmpegPath: 'ffmpeg',
           useMarks: false,
-          markEveryFrames: 50,
+          markEveryFrames: 0,
         });
 
-        // push to transcript once spoken
+        // Give Twilio’s jitter buffer a moment to drain
+        await this._sendPcmuSilenceMs(200);
+
+        // Send a mark and wait for Twilio to echo it back
+        const markId = `tts_done_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        await this._sendMarkAndWait(markId);
+
+        // push to transcript once we know Twilio drained it
         currentTranscript.push({
           role: "secretary",
           message: nextReply,
           timestamp: new Date().toISOString(),
         });
+
+        // small human-ish pause
+        await this._sleep(50);
       }
     } catch (err) {
       console.error("TTS/playback error:", err);
     } finally {
       this.playing = false;
-      // if anything arrived while we were playing, drain again
       if (this.playQueue.length > 0) void this._drainPlaybackQueue();
     }
   }
 
+  // ---------- Deepgram ----------
   async openDeepgram() {
-// API endpoint for demo - get example scenario response
     this.buffer = [];
     this.speaking = false;
 
@@ -556,7 +613,7 @@ class MediaStream {
     this.dgConn.on(LiveTranscriptionEvents.SpeechStarted, () => {
       this.speaking = true;
     });
-    
+
     this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
       const alt = evt?.channel?.alternatives?.[0];
       const text = alt?.transcript?.trim() || "";
@@ -589,44 +646,46 @@ class MediaStream {
     console.log("Deepgram live connected");
   }
 
-async _maybeFlush(reason) {
-  if (this.flushing || this.isThrottled) return;
-  this.flushing = true;
+  // ---------- flush assembled text to NLU/LLM ----------
+  async _maybeFlush(reason) {
+    if (this.flushing || this.isThrottled) return;
+    this.flushing = true;
 
-  const assembled = (this.finalSegments.length ? this.finalSegments.join(" ") : this.partialText)
-    .replace(/\s+/g, " ").trim();
+    const assembled = (this.finalSegments.length ? this.finalSegments.join(" ") : this.partialText)
+      .replace(/\s+/g, " ").trim();
 
-  this.finalSegments = [];
-  this.partialText = "";
-  this.lastFinalSeen = "";
+    this.finalSegments = [];
+    this.partialText = "";
+    this.lastFinalSeen = "";
 
-  if (!assembled) { this.flushing = false; return; }
-  if (assembled === this.lastFlushedText) { this.flushing = false; return; }
-  this.lastFlushedText = assembled;
+    if (!assembled) { this.flushing = false; return; }
+    if (assembled === this.lastFlushedText) { this.flushing = false; return; }
+    this.lastFlushedText = assembled;
 
-  try {
-    this.isThrottled = true;
-    console.log(`USER: ${assembled}`);
+    try {
+      this.isThrottled = true;
+      console.log(`USER: ${assembled}`);
 
-    currentTranscript.push({
-      role: "user",
-      message: assembled,
-      timestamp: new Date().toISOString(),
-    });
+      currentTranscript.push({
+        role: "user",
+        message: assembled,
+        timestamp: new Date().toISOString(),
+      });
 
-    const { reply } = await sendTurn({ text: assembled, stream_sid: this.streamSid });
-    console.log(`SECRETARY: ${reply}`);
+      // IMPORTANT: use camelCase streamSid
+      const { reply } = await sendTurn({ text: assembled, streamSid: this.streamSid });
+      console.log(`SECRETARY: ${reply}`);
 
-    // enqueue reply to be spoken; playback is serialized
-    this._enqueueReply(reply);
-  } catch (e) {
-    console.error("sendTurn failed:", e);
-  } finally {
-    this.isThrottled = false;
-    this.flushing = false;
+      this._enqueueReply(reply);
+    } catch (e) {
+      console.error("sendTurn failed:", e);
+    } finally {
+      this.isThrottled = false;
+      this.flushing = false;
+    }
   }
-}
 
+  // ---------- Twilio WS message handling ----------
   async processMessage(message) {
     if (message.type !== "utf8") return;
     const data = JSON.parse(message.utf8Data);
@@ -658,36 +717,46 @@ async _maybeFlush(reason) {
     }
 
     if (data.event === "mark") {
+      // Twilio echoes our marks here — resolve any waiter
+      const name = data?.mark?.name;
+      const resolver = name && this.pendingMarks.get(name);
+      if (resolver) {
+        this.pendingMarks.delete(name);
+        resolver();
+      }
       log("From Twilio: mark", data);
       return;
     }
-    
+
     if (data.event === "stop" || data.event === "close" || data.event === "closed") {
       log("From Twilio: stream ended", data);
+      await this.close(); // ensure teardown so later plays don’t stall
       return;
     }
   }
 
+  // ---------- teardown ----------
   async close() {
     try {
       if (this.dgConn) {
         this.dgConn.finish();
         this.dgConn = null;
       }
-    } catch (e) {
-    }
+    } catch (e) {}
 
     try {
       await fetch("http://127.0.0.1:5001/session/reset", {
         method: "POST",
-        headers: {
-          "x-internal-secret": process.env.INTERNAL_SECRET
-        },
-        body: JSON.stringify({ stream_sid: this.streamSid })
+        headers: { "x-internal-secret": process.env.INTERNAL_SECRET },
+        body: JSON.stringify({ stream_sid: this.streamSid }) // backend expects snake? keep if required
       });
     } catch (err) {
       log("Warning: Failed to reset session on close", err.message);
     }
+
+    // resolve any pending marks so nothing hangs
+    for (const [, resolve] of this.pendingMarks) resolve();
+    this.pendingMarks.clear();
 
     log("Server: Closed");
   }
