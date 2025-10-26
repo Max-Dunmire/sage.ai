@@ -221,6 +221,53 @@ dispatcher.onPost("/api/demo-scenario", async function (req, res) {
   }
 });
 
+dispatcher.onGet("/api/calendar/events", async function (req, res) {
+  try {
+    if (!calendar) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Calendar service not initialized. Check service account configuration.'
+      }));
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const timeMin = url.searchParams.get('timeMin');
+    const timeMax = url.searchParams.get('timeMax');
+    const maxResults = url.searchParams.get('maxResults') || '10';
+
+    const response = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin: timeMin || new Date().toISOString(),
+      timeMax: timeMax || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      maxResults: parseInt(maxResults),
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: true,
+      events: response.data.items || [],
+    }));
+  } catch (error) {
+    console.error('Error fetching calendar events:', error);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: error.message || 'Failed to fetch calendar events'
+    }));
+  }
+});
 dispatcher.onPost("/api/calendar/events", async function (req, res) {
   try {
     if (!calendar) {
