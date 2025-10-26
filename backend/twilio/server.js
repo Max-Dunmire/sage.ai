@@ -502,8 +502,8 @@ class MediaStream {
       encoding: "mulaw",
       sample_rate: 8000,
       channels: 1,
-      endpointing: 400,
-      utterance_end_ms: 400,
+      endpointing: 1000,
+      utterance_end_ms: 1000,
       vad_events: true,
       utterances: true
     });
