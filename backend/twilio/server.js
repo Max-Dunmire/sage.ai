@@ -121,7 +121,7 @@ dispatcher.onPost("/api/conversation", async function (req, res) {
         log(`Demo conversation - Persona: ${persona}, User: ${userMessage}`);
 
         // Call the backend turn endpoint
-        const { reply } = await sendTurn({ text: userMessage, stream_sid: this.stream_sid });
+        const { reply } = await sendTurn({ text: userMessage, stream_sid: this.streamSid });
 
         res.writeHead(200, {
           "Content-Type": "application/json",
