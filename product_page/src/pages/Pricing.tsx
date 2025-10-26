@@ -1,12 +1,13 @@
 import { Button } from "@/components/ui/button";
 import { Check } from "lucide-react";
-import { toast } from "sonner";
+import { useNavigate } from "react-router-dom";
 
 const Pricing = () => {
+  const navigate = useNavigate();
+
   const handleGetStarted = (plan: string) => {
-    toast.success("Great choice!", {
-      description: `You selected the ${plan} plan. Sign-up coming soon!`,
-    });
+    // Navigate to signup page, passing the selected plan
+    navigate("/signup", { state: { selectedPlan: plan } });
   };
 
   const plans = [

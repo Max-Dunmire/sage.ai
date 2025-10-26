@@ -1,10 +1,12 @@
 import { Link, useLocation } from "react-router-dom";
 import { useState } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/context/AuthContext";
 
 const Navbar = () => {
   const location = useLocation();
+  const { user, isLoading } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
 
   const links = [
@@ -53,11 +55,33 @@ const Navbar = () => {
               {link.name}
             </Link>
           ))}
-          <Link to="/pricing">
-            <Button className="bg-gradient-sage hover:opacity-90 transition-opacity">
-              Try Sage.ai
-            </Button>
-          </Link>
+          <div className="flex items-center space-x-3 pl-4 border-l border-border/40">
+            {!isLoading && user ? (
+              // User is logged in - show profile circle
+              <Link
+                to="/settings"
+                className="w-10 h-10 rounded-full bg-gradient-sage flex items-center justify-center hover:opacity-80 transition-opacity"
+                title={user.fullName}
+              >
+                <User className="w-5 h-5 text-primary-foreground" />
+              </Link>
+            ) : (
+              // User is not logged in - show sign in and try buttons
+              <>
+                <Link
+                  to="/signin"
+                  className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+                >
+                  Sign In
+                </Link>
+                <Link to="/pricing">
+                  <Button className="bg-gradient-sage hover:opacity-90 transition-opacity">
+                    Try Sage.ai
+                  </Button>
+                </Link>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Mobile Menu Button */}
@@ -86,11 +110,34 @@ const Navbar = () => {
                 {link.name}
               </Link>
             ))}
-            <Link to="/pricing" onClick={() => setIsOpen(false)}>
-              <Button className="w-full bg-gradient-sage hover:opacity-90 transition-opacity">
-                Try Sage.ai
-              </Button>
-            </Link>
+            <div className="border-t border-border/40 pt-3 space-y-3">
+              {!isLoading && user ? (
+                // User is logged in - show settings link
+                <Link
+                  to="/settings"
+                  onClick={() => setIsOpen(false)}
+                  className="block py-2 text-sm font-medium text-primary"
+                >
+                  Settings
+                </Link>
+              ) : (
+                // User is not logged in - show sign in and try buttons
+                <>
+                  <Link
+                    to="/signin"
+                    onClick={() => setIsOpen(false)}
+                    className="block py-2 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+                  >
+                    Sign In
+                  </Link>
+                  <Link to="/pricing" onClick={() => setIsOpen(false)}>
+                    <Button className="w-full bg-gradient-sage hover:opacity-90 transition-opacity">
+                      Try Sage.ai
+                    </Button>
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}
