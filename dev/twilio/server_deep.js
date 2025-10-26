@@ -1,3 +1,4 @@
+require('dotenv').config();
 const fs = require("fs");
 const path = require("path");
 var http = require("http");
@@ -36,7 +37,7 @@ function handleRequest(request, response) {
 dispatcher.onPost("/twiml", function (req, res) {
   log("POST TwiML");
 
-  var filePath = path.join(__dirname + "/templates", "streams.xml");
+  var filePath = path.join(__dirname, "twiml.xml");
   var stat = fs.statSync(filePath);
 
   res.writeHead(200, {
@@ -50,6 +51,12 @@ dispatcher.onPost("/twiml", function (req, res) {
 
 mediaws.on("connect", function (connection) {
   log("From Twilio: Connection accepted");
+  connection.on("close", (code, desc) => {
+    log("From Twilio: WS closed", { code, desc });
+  });
+  connection.on("error", (err) => {
+    console.error("From Twilio: WS error", err);
+  });
   new MediaStream(connection);
 });
 
