@@ -472,6 +472,8 @@ async function sendTurn({text, streamSid}) {
   return r.json();
 }
 
+const { spawn } = require("child_process");
+
 class MediaStream {
   constructor(connection) {
     this.connection = connection;
@@ -490,8 +492,8 @@ class MediaStream {
     this.isThrottled = false;
 
     // Playback / TTS
-    this.playing = false;     // mutex: only one playback at a time
-    this.playQueue = [];      // FIFO of replies to speak
+    this.playing = false;     // mutex
+    this.playQueue = [];      // FIFO
 
     // Mark handling
     this.pendingMarks = new Map(); // name -> resolver
@@ -507,7 +509,7 @@ class MediaStream {
   async _sendPcmuSilenceMs(ms = 200) {
     if (!this.connection || this.connection.connected === false) return;
     const frames = Math.ceil(ms / 20);
-    const oneFrame = Buffer.alloc(160, 0xFF); // 20ms of PCMU silence @8kHz
+    const oneFrame = Buffer.alloc(160, 0xFF); // PCMU "silence" byte
     for (let i = 0; i < frames; i++) {
       this.connection.sendUTF(JSON.stringify({
         event: "media",
@@ -521,19 +523,65 @@ class MediaStream {
   _sendMarkAndWait(name) {
     return new Promise((resolve) => {
       if (!this.connection || this.connection.connected === false) return resolve();
-      // store resolver
       this.pendingMarks.set(name, resolve);
-      // send mark to Twilio; Twilio will echo it back
       this.connection.sendUTF(JSON.stringify({
         event: "mark",
         streamSid: this.streamSid,
         mark: { name }
       }));
-      // safety: never hang forever
+      // safety timeout
       setTimeout(() => {
         if (this.pendingMarks.delete(name)) resolve();
       }, 5000);
     });
+  }
+
+  // Stream WAV -> (ffmpeg) -> PCMU frames paced at 20ms
+  async _playWavViaFfmpeg(wavBuffer) {
+    if (!this.connection || this.connection.connected === false) return;
+
+    const ff = spawn("ffmpeg", [
+      "-hide_banner", "-loglevel", "error",
+      "-i", "pipe:0",
+      "-f", "mulaw", "-ar", "8000", "-ac", "1",
+      "pipe:1",
+    ]);
+
+    // Collect transcoded μ-law bytes
+    const chunks = [];
+    ff.stdout.on("data", (d) => chunks.push(d));
+
+    const done = new Promise((resolve, reject) => {
+      ff.on("error", reject);
+      ff.on("close", (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`ffmpeg exited with code ${code}`));
+      });
+    });
+
+    // Feed input and finish stdin
+    try {
+      ff.stdin.write(wavBuffer);
+      ff.stdin.end();
+    } catch (e) {
+      ff.kill("SIGKILL");
+      throw e;
+    }
+
+    await done;
+    const pcmu = Buffer.concat(chunks);
+    if (!pcmu.length) throw new Error("ffmpeg produced no audio");
+
+    // Send in 20ms frames (160 bytes @8kHz)
+    for (let o = 0; o < pcmu.length; o += 160) {
+      const frame = pcmu.subarray(o, o + 160);
+      this.connection.sendUTF(JSON.stringify({
+        event: "media",
+        streamSid: this.streamSid,
+        media: { payload: frame.toString("base64") }
+      }));
+      await this._sleep(20);
+    }
   }
 
   // ---------- reply queue ----------
@@ -550,39 +598,32 @@ class MediaStream {
       while (this.playQueue.length > 0) {
         const nextReply = this.playQueue.shift();
 
-        // Generate TTS (WAV)
+        // TTS -> WAV buffer
         const wavBuffer = await textToAudio(nextReply, process.env.FISH_API_KEY);
         if (!wavBuffer || wavBuffer.length < 1000) {
           console.warn("TTS returned empty/short audio, skipping");
           continue;
         }
-
-        // Connection might be gone
         if (!this.connection || this.connection.connected === false) break;
 
-        // Stream audio to Twilio; don't rely on internal marks
-        await streamWavViaFfmpeg(this.connection, this.streamSid, wavBuffer, {
-          ffmpegPath: 'ffmpeg',
-          useMarks: false,
-          markEveryFrames: 0,
-        });
+        // 1) play it (paced μ-law frames)
+        await this._playWavViaFfmpeg(wavBuffer);
 
-        // Give Twilio’s jitter buffer a moment to drain
+        // 2) add a short silence tail so Twilio drains cleanly
         await this._sendPcmuSilenceMs(200);
 
-        // Send a mark and wait for Twilio to echo it back
+        // 3) send a mark and wait for echo
         const markId = `tts_done_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         await this._sendMarkAndWait(markId);
 
-        // push to transcript once we know Twilio drained it
+        // 4) now it's safe to log / dequeue next
         currentTranscript.push({
           role: "secretary",
           message: nextReply,
           timestamp: new Date().toISOString(),
         });
 
-        // small human-ish pause
-        await this._sleep(50);
+        await this._sleep(50); // small natural pause
       }
     } catch (err) {
       console.error("TTS/playback error:", err);
@@ -613,7 +654,7 @@ class MediaStream {
     this.dgConn.on(LiveTranscriptionEvents.SpeechStarted, () => {
       this.speaking = true;
     });
-
+    
     this.dgConn.on(LiveTranscriptionEvents.Transcript, async (evt) => {
       const alt = evt?.channel?.alternatives?.[0];
       const text = alt?.transcript?.trim() || "";
@@ -717,7 +758,6 @@ class MediaStream {
     }
 
     if (data.event === "mark") {
-      // Twilio echoes our marks here — resolve any waiter
       const name = data?.mark?.name;
       const resolver = name && this.pendingMarks.get(name);
       if (resolver) {
@@ -727,10 +767,10 @@ class MediaStream {
       log("From Twilio: mark", data);
       return;
     }
-
+    
     if (data.event === "stop" || data.event === "close" || data.event === "closed") {
       log("From Twilio: stream ended", data);
-      await this.close(); // ensure teardown so later plays don’t stall
+      await this.close();
       return;
     }
   }
@@ -748,7 +788,7 @@ class MediaStream {
       await fetch("http://127.0.0.1:5001/session/reset", {
         method: "POST",
         headers: { "x-internal-secret": process.env.INTERNAL_SECRET },
-        body: JSON.stringify({ stream_sid: this.streamSid }) // backend expects snake? keep if required
+        body: JSON.stringify({ stream_sid: this.streamSid }) // keep whatever your backend expects
       });
     } catch (err) {
       log("Warning: Failed to reset session on close", err.message);
