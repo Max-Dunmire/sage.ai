@@ -461,14 +461,14 @@ mediaws.on("connect", function (connection) {
   new MediaStream(connection);
 });
 
-async function sendTurn({text}) {
+async function sendTurn({text, streamSid}) {
   const r = await fetch("http://127.0.0.1:5001/turn", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-internal-secret": process.env.INTERNAL_SECRET
     },
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text, streamSid})
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
