@@ -3,35 +3,11 @@ const path = require("path");
 var http = require("http");
 const fetch = require("node-fetch");
 const FormData = require("form-data");
-const textToAudio = require("./textToAudio")
+const textToAudio = require("./textToAudio.js");
+const { streamWavViaFfmpeg } = require('./ffmpegMuLawStreamer');
 var HttpDispatcher = require("httpdispatcher");
 var WebSocketServer = require("websocket").server;
 const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
-const WaveFile = require("wavefile").WaveFile;
-const MuLaw = require("alawmulaw").MuLaw;
-const { google } = require("googleapis");
-
-let auth;
-let calendar;
-
-try {
-  const serviceAccountPath = './service_keys.json';
-  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-
-  auth = new google.auth.GoogleAuth({
-    credentials: serviceAccount,
-    scopes: ['https://www.googleapis.com/auth/calendar'],
-  });
-
-  calendar = google.calendar({ version: 'v3', auth });
-  console.log('Google Calendar API initialized with service account');
-} catch (error) {
-  console.warn('Google Calendar API not initialized:', error.message);
-  console.warn('Calendar features will be disabled. Add service-account-key.json to enable.');
-}
-
-// Calendar ID from environment or use primary
-const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
 
 const dg = createClient(process.env.DEEPGRAM_API_KEY);
 const HTTP_SERVER_PORT = 8081;
@@ -39,6 +15,7 @@ const HTTP_SERVER_PORT = 8081;
 var dispatcher = new HttpDispatcher();
 var wsserver = http.createServer(handleRequest);
 
+// Global state for tracking the current call transcript
 var currentTranscript = [];
 var isCallActive = false;
 
@@ -76,6 +53,7 @@ dispatcher.onPost("/twiml", function (req, res) {
   readStream.pipe(res);
 });
 
+// API endpoint to get the current live transcript
 dispatcher.onGet("/api/transcript", function (req, res) {
   res.writeHead(200, {
     "Content-Type": "application/json",
@@ -89,6 +67,7 @@ dispatcher.onGet("/api/transcript", function (req, res) {
   }));
 });
 
+// API endpoint to reset the transcript (for starting a new demo)
 dispatcher.onPost("/api/transcript/reset", function (req, res) {
   currentTranscript = [];
   isCallActive = false;
@@ -104,6 +83,7 @@ dispatcher.onPost("/api/transcript/reset", function (req, res) {
   }));
 });
 
+// API endpoint for demo - get conversation
 dispatcher.onPost("/api/conversation", async function (req, res) {
   try {
     let body = "";
@@ -118,6 +98,7 @@ dispatcher.onPost("/api/conversation", async function (req, res) {
 
         log(`Demo conversation - Persona: ${persona}, User: ${userMessage}`);
 
+        // Call the backend turn endpoint
         const { reply } = await sendTurn({ text: userMessage });
 
         res.writeHead(200, {
@@ -169,6 +150,7 @@ dispatcher.onPost("/api/demo-scenario", async function (req, res) {
 
         log(`Demo scenario - Persona: ${persona}, Scenario: ${scenario}`);
 
+        // For demo purposes, return example responses
         const scenarioResponses = {
           spam: {
             userMessage: "Unknown Number is calling...",
@@ -221,228 +203,7 @@ dispatcher.onPost("/api/demo-scenario", async function (req, res) {
   }
 });
 
-dispatcher.onGet("/api/calendar/events", async function (req, res) {
-  try {
-    if (!calendar) {
-      res.writeHead(503, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'Calendar service not initialized. Check service account configuration.'
-      }));
-    }
-
-    const url = new URL(req.url, `http://${req.headers.host}`);
-    const timeMin = url.searchParams.get('timeMin');
-    const timeMax = url.searchParams.get('timeMax');
-    const maxResults = url.searchParams.get('maxResults') || '10';
-
-    const response = await calendar.events.list({
-      calendarId: CALENDAR_ID,
-      timeMin: timeMin || new Date().toISOString(),
-      timeMax: timeMax || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-      maxResults: parseInt(maxResults),
-      singleEvents: true,
-      orderBy: 'startTime',
-    });
-
-    res.writeHead(200, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(JSON.stringify({
-      success: true,
-      events: response.data.items || [],
-    }));
-  } catch (error) {
-    console.error('Error fetching calendar events:', error);
-    res.writeHead(500, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(JSON.stringify({
-      success: false,
-      error: error.message || 'Failed to fetch calendar events'
-    }));
-  }
-});
-dispatcher.onPost("/api/calendar/events", async function (req, res) {
-  try {
-    if (!calendar) {
-      res.writeHead(503, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'Calendar service not initialized. Check service account configuration.'
-      }));
-    }
-
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk.toString();
-    });
-
-    req.on("end", async () => {
-      try {
-        const data = JSON.parse(body);
-        const { event } = data;
-
-        if (!event || !event.summary || !event.start) {
-          res.writeHead(400, {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          });
-          return res.end(JSON.stringify({ error: 'Event summary and start time required' }));
-        }
-
-        const response = await calendar.events.insert({
-          calendarId: CALENDAR_ID,
-          requestBody: event,
-        });
-
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({
-          success: true,
-          event: response.data,
-        }));
-      } catch (error) {
-        console.error('Error creating calendar event:', error);
-        res.writeHead(500, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({
-          success: false,
-          error: error.message || 'Failed to create calendar event'
-        }));
-      }
-    });
-  } catch (error) {
-    console.error('Error handling create event request:', error);
-    res.writeHead(500, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(JSON.stringify({
-      success: false,
-      error: error.message
-    }));
-  }
-});
-
-// Update a calendar event
-dispatcher.onPut("/api/calendar/events/:eventId", async function (req, res) {
-  try {
-    if (!calendar) {
-      res.writeHead(503, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'Calendar service not initialized. Check service account configuration.'
-      }));
-    }
-
-    const eventId = req.params.eventId;
-    let body = "";
-    req.on("data", (chunk) => {
-      body += chunk.toString();
-    });
-
-    req.on("end", async () => {
-      try {
-        const data = JSON.parse(body);
-        const { event } = data;
-
-        const response = await calendar.events.update({
-          calendarId: CALENDAR_ID,
-          eventId: eventId,
-          requestBody: event,
-        });
-
-        res.writeHead(200, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({
-          success: true,
-          event: response.data,
-        }));
-      } catch (error) {
-        console.error('Error updating calendar event:', error);
-        res.writeHead(500, {
-          "Content-Type": "application/json",
-          "Access-Control-Allow-Origin": "*",
-        });
-        res.end(JSON.stringify({
-          success: false,
-          error: error.message || 'Failed to update calendar event'
-        }));
-      }
-    });
-  } catch (error) {
-    console.error('Error handling update event request:', error);
-    res.writeHead(500, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(JSON.stringify({
-      success: false,
-      error: error.message
-    }));
-  }
-});
-
-// Delete a calendar event
-dispatcher.onDelete("/api/calendar/events/:eventId", async function (req, res) {
-  try {
-    if (!calendar) {
-      res.writeHead(503, {
-        "Content-Type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      });
-      return res.end(JSON.stringify({
-        success: false,
-        error: 'Calendar service not initialized. Check service account configuration.'
-      }));
-    }
-
-    const eventId = req.params.eventId;
-
-    await calendar.events.delete({
-      calendarId: CALENDAR_ID,
-      eventId: eventId,
-    });
-
-    res.writeHead(200, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(JSON.stringify({
-      success: true,
-      message: 'Event deleted successfully',
-    }));
-  } catch (error) {
-    console.error('Error deleting calendar event:', error);
-    res.writeHead(500, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-    });
-    res.end(JSON.stringify({
-      success: false,
-      error: error.message || 'Failed to delete calendar event'
-    }));
-  }
-});
-
+// CORS preflight
 dispatcher.onOptions(/.*/, function (req, res) {
   res.writeHead(200, {
     "Access-Control-Allow-Origin": "*",
@@ -478,16 +239,17 @@ class MediaStream {
     this.dgConn = null;
     this.streamSid = null;
     this.hasSeenMedia = false;
-    
     this.partialText = "";
     this.finalSegments = [];
     this.lastFinalSeen = "";
     this.isThrottled = false;
     this.flushing = false;
     this.lastFlushedText = "";
+    this.isThrottled = false;
   }
 
   async openDeepgram() {
+// API endpoint for demo - get example scenario response
     this.buffer = [];
     this.speaking = false;
 
@@ -570,14 +332,38 @@ class MediaStream {
         timestamp: new Date().toISOString(),
       });
 
-      const { reply } = await sendTurn({ text: assembled, stream_sid: this.streamSid });
+      const { reply } = await sendTurn({assembled});
+
+      const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
+
+      async function speak(ws, streamSid, fishWavBuffer) {
+          try {
+            await streamWavViaFfmpeg(ws, streamSid, fishWavBuffer, {
+              ffmpegPath: 'ffmpeg',     // or an absolute path if needed
+              useMarks: false,          // flip to true if you want flow-control marks
+              markEveryFrames: 50,      // ~1s between marks
+            });
+          } catch (err) {
+            console.error('TTS stream error:', err);
+          }
+        }
+
+      console.log(`SECRETARY: ${reply}`);
+
+      await speak(this.connection, this.streamSid, wavBuffer);
+
+      currentTranscript.push({
+        role: "secretary",
+        message: reply,
+        timestamp: new Date().toISOString(),
+      });
 
       console.log(`SECRETARY: ${reply}`);
 
       currentTranscript.push({
         role: "secretary",
         message: reply,
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString()
       });
     } catch (e) {
       console.error("sendTurn failed:", e);
@@ -653,259 +439,4 @@ class MediaStream {
   }
 }
 
-
-const MULAW_DECODE_TABLE = (() => {
-  const table = new Int16Array(256);
-  for (let i = 0; i < 256; i++) {
-    let u = ~i & 0xff;
-    let t = ((u & 0x0f) << 3) + 0x84;
-    t <<= (u & 0x70) >> 4;
-    t -= 0x84;
-    table[i] = (u & 0x80) ? (0x84 - t) : (t - 0x84);
-  }
-  return table;
-})();
-
-const MULAW_ENCODE_TABLE = (() => {
-  const MULAW_MAX = 32635;
-  const MULAW_MIN = -32768;
-  const table = new Uint8Array(65536);
-
-  for (let i = 0; i < 256; i++) {
-    const pcm = MULAW_DECODE_TABLE[i];
-    table[(pcm & 0xFFFF)] = i;
-  }
-
-  return table;
-})();
-
-function decodeMuLawToPCM16(muLawBuf) {
-  const out = new Int16Array(muLawBuf.length);
-  for (let i = 0; i < muLawBuf.length; i++) {
-    out[i] = MULAW_DECODE_TABLE[muLawBuf[i]];
-  }
-  return out;
-}
-
-/**
- * Encode PCM16 audio to Mu-law format for Twilio
- * Standard G.711 μ-law encoding (ITU-T G.711)
- * @param {Int16Array|Buffer} pcm16Data - PCM16 audio data (8kHz, mono)
- * @returns {Buffer} Mu-law encoded data
- */
-function encodePCM16ToMuLaw(pcm16Data) {
-  // Convert Buffer to Int16Array if needed
-  let pcmArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    pcmArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const muLaw = Buffer.alloc(pcmArray.length);
-  const MULAW_MAX = 32635;
-  const MULAW_THRESHOLD = 132;
-
-  for (let i = 0; i < pcmArray.length; i++) {
-    let pcm = pcmArray[i];
-
-    const sign = pcm < 0 ? 0x80 : 0x00;
-
-    if (pcm < 0) {
-      pcm = -pcm;
-    }
-
-    if (pcm > MULAW_MAX) {
-      pcm = MULAW_MAX;
-    }
-
-    pcm = pcm + MULAW_THRESHOLD;
-
-    let exponent = 7;
-    for (let mask = 0x4000; mask > 0; mask >>= 1) {
-      if (pcm >= (mask << 1)) {
-        break;
-      }
-      exponent--;
-    }
-
-    const mantissa = (pcm >> (exponent + 3)) & 0x0F;
-
-    muLaw[i] = ~(sign | (exponent << 4) | mantissa) & 0xFF;
-  }
-
-  return muLaw;
-}
-
-function wavToPCM16(wavBuffer) {
-  return wavBuffer.slice(44);
-}
-
-function applyAntiAliasingFilter(input, decimationFactor) {
-  const output = new Int16Array(input.length);
-  const windowSize = Math.ceil(decimationFactor * 2);
-
-  for (let i = 0; i < input.length; i++) {
-    let sum = 0;
-    let weight = 0;
-
-    const start = Math.max(0, i - Math.floor(windowSize / 2));
-    const end = Math.min(input.length, i + Math.ceil(windowSize / 2));
-
-    for (let j = start; j < end; j++) {
-      sum += input[j];
-      weight++;
-    }
-
-    output[i] = Math.round(sum / weight);
-  }
-
-  return output;
-}
-
-function resamplePCM16(pcm16Data, inputSampleRate, outputSampleRate) {
-  let inputArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    inputArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const ratio = inputSampleRate / outputSampleRate;
-
-  let filtered = inputArray;
-  if (ratio > 2) {
-    filtered = applyAntiAliasingFilter(inputArray, ratio);
-  }
-
-  const outputLength = Math.floor(filtered.length / ratio);
-  const output = new Int16Array(outputLength);
-
-  for (let i = 0; i < outputLength; i++) {
-    const srcIndex = i * ratio;
-    const srcFloor = Math.floor(srcIndex);
-    const srcCeil = Math.min(srcFloor + 1, filtered.length - 1);
-    const fraction = srcIndex - srcFloor;
-
-    output[i] = Math.round(
-      filtered[srcFloor] * (1 - fraction) + filtered[srcCeil] * fraction
-    );
-  }
-
-  return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
-}
-
-function parseWavHeader(wavBuffer) {
-  if (wavBuffer.length < 44) {
-    throw new Error("WAV buffer too small, invalid WAV file");
-  }
-
-  const sampleRate = wavBuffer.readUInt32LE(24);
-  const channels = wavBuffer.readUInt16LE(22);
-  const bitsPerSample = wavBuffer.readUInt16LE(34);
-  const dataSize = wavBuffer.length - 44;
-
-  return {
-    sampleRate,
-    channels,
-    bitsPerSample,
-    dataSize,
-    numSamples: Math.floor(dataSize / (bitsPerSample / 8) / channels)
-  };
-}
-
-function amplifyAudio(pcm16Data, gainFactor = 4.0) {
-  let pcmArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    pcmArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const output = new Int16Array(pcmArray.length);
-  for (let i = 0; i < pcmArray.length; i++) {
-    const amplified = pcmArray[i] * gainFactor;
-    output[i] = Math.max(-32768, Math.min(32767, amplified));
-  }
-
-  return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
-}
-
-function wavToMuLawOptimized(wavBuffer) {
-  try {
-    const wav = new WaveFile(wavBuffer);
-
-    const originalRate = wav.fmt.sampleRate;
-    const originalChannels = wav.fmt.numChannels;
-
-    if (originalRate !== 8000) {
-      wav.toSampleRate(8000);
-    }
-
-    if (wav.fmt.formatCode !== 1) {
-      wav.toRawFile();
-    }
-
-    const pcm16Buffer = Buffer.from(wav.data.samples.buffer, wav.data.samples.byteOffset, wav.data.samples.byteLength);
-    const pcm16Array = new Int16Array(pcm16Buffer.buffer, pcm16Buffer.byteOffset, pcm16Buffer.length / 2);
-
-    const gainFactor = 1.5;
-    const amplified = new Int16Array(pcm16Array.length);
-    let maxVal = 0;
-
-    for (let i = 0; i < pcm16Array.length; i++) {
-      const val = pcm16Array[i] * gainFactor;
-      const clipped = Math.max(-32768, Math.min(32767, val));
-      amplified[i] = clipped;
-      maxVal = Math.max(maxVal, Math.abs(clipped));
-    }
-
-    const muLawBuffer = Buffer.alloc(amplified.length);
-    for (let i = 0; i < amplified.length; i++) {
-      muLawBuffer[i] = MuLaw.encode(amplified[i]);
-    }
-
-    return muLawBuffer;
-
-  } catch (err) {
-    log(`Error in wavToMuLawOptimized: ${err.message}, falling back to original implementation`);
-    return wavToMuLaw(wavBuffer);
-  }
-}
-
-function wavToMuLaw(wavBuffer) {
-  const wavInfo = parseWavHeader(wavBuffer);
-  log(`WAV Info: ${wavInfo.sampleRate}Hz, ${wavInfo.channels} channels, ${wavInfo.bitsPerSample} bits/sample`);
-
-  const pcm16 = wavToPCM16(wavBuffer);
-
-  let audioToEncode = pcm16;
-  if (wavInfo.sampleRate !== 8000) {
-    log(`Resampling from ${wavInfo.sampleRate}Hz to 8000Hz`);
-    audioToEncode = resamplePCM16(pcm16, wavInfo.sampleRate, 8000);
-  }
-  const amplified = amplifyAudio(audioToEncode, 2.0);
-
-  return encodePCM16ToMuLaw(amplified);
-}
-
-function pcm16ToWav(pcmBuf, sampleRate) {
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) >> 3;
-  const blockAlign = (numChannels * bitsPerSample) >> 3;
-  const dataSize = pcmBuf.length;
-
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + dataSize, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(numChannels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataSize, 40);
-  return Buffer.concat([header, pcmBuf]);
-}
-
 wsserver.listen(HTTP_SERVER_PORT, function () { console.log("Server listening on: http://localhost:%s", HTTP_SERVER_PORT); });
-
