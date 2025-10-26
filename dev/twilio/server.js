@@ -280,8 +280,7 @@ class MediaStream {
             timestamp: new Date().toISOString(),
           });
 
-          await new Promise(r => setTimeout(r, 2000));
-          await sleep(2500);
+          await sleep(5000);
 	  this.isThrottled = false;
         }
       } catch (err) {
@@ -345,7 +344,7 @@ class MediaStream {
     }
   }
 
-  close() {
+  async close() {
     try {
       if (this.dgConn) {
         this.dgConn.finish();
@@ -353,6 +352,20 @@ class MediaStream {
       }
     } catch (e) {
     }
+
+    // Reset the Python backend session when the call ends
+    try {
+      await fetch("http://127.0.0.1:5001/session/reset", {
+        method: "POST",
+        headers: {
+          "x-internal-secret": process.env.INTERNAL_SECRET
+        },
+        body: JSON.stringify({ stream_sid: this.streamSid })
+      });
+    } catch (err) {
+      log("Warning: Failed to reset session on close", err.message);
+    }
+
     log("Server: Closed");
   }
 }

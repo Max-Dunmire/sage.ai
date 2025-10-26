@@ -6,7 +6,7 @@ from dateutil import parser as dtparser
 
 USER_TZ = "America/Los_Angeles"
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
-MODEL = "claude-3-5-haiku-20241022"
+MODEL = "claude-sonnet-4-5-20250929"
 
 LAVA_TOKEN = os.getenv("LAVA_FORWARD_TOKEN")
 if not LAVA_TOKEN:

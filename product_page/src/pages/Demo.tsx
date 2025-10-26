@@ -321,7 +321,7 @@ const Demo = () => {
                 </p>
               </div>
 
-              {/* Live Transcription */}
+              {/* Live Transcription - Sliding Window */}
               {demoStarted && (
                 <div className="animate-fade-in">
                   <div className="border-t border-muted pt-6">
@@ -333,35 +333,67 @@ const Demo = () => {
                       </div>
                     )}
 
-                    <div className="bg-muted/30 rounded-lg p-4 min-h-[200px] max-h-[400px] overflow-y-auto space-y-3">
+                    {/* Fixed height container - shows max 5 messages */}
+                    <div className="bg-muted/30 rounded-lg p-4 h-[320px] flex flex-col">
                       {transcript && transcript.length > 0 ? (
-                        <div className="space-y-3">
-                          {transcript.map((entry, index) => (
-                            <div key={index} className="space-y-1">
-                              <p className={`text-xs font-semibold uppercase tracking-wide ${
-                                entry.role === "user"
-                                  ? "text-blue-600 dark:text-blue-400"
-                                  : "text-green-600 dark:text-green-400"
-                              }`}>
-                                {entry.role === "user" ? "Caller" : "Sage.ai"}
-                              </p>
-                              <p className="text-sm leading-relaxed text-foreground">
-                                {entry.message}
-                              </p>
+                        <>
+                          {/* Scrolling message area */}
+                          <div className="flex-1 overflow-hidden flex flex-col justify-end">
+                            <div className="space-y-4">
+                              {/* Show only the last 5 messages (sliding window) */}
+                              {transcript.slice(-5).map((entry, index) => (
+                                <div
+                                  key={index}
+                                  className="animate-fade-in space-y-1 border-l-2 pl-3 pb-2"
+                                  style={{
+                                    borderColor:
+                                      entry.role === "user"
+                                        ? "rgb(37, 99, 235)"
+                                        : "rgb(34, 197, 94)",
+                                    animationDelay: `${index * 0.05}s`,
+                                  }}
+                                >
+                                  <p
+                                    className={`text-xs font-semibold uppercase tracking-wide ${
+                                      entry.role === "user"
+                                        ? "text-blue-600 dark:text-blue-400"
+                                        : "text-green-600 dark:text-green-400"
+                                    }`}
+                                  >
+                                    {entry.role === "user" ? "Caller" : "Sage.ai"}
+                                  </p>
+                                  <p className="text-sm leading-relaxed text-foreground">
+                                    {entry.message}
+                                  </p>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                          </div>
+
+                          {/* Message counter at bottom */}
+                          <div className="text-xs text-muted-foreground text-center pt-2 border-t border-muted/50">
+                            Message {Math.min(transcript.length, 5)} of {transcript.length}
+                          </div>
+                        </>
                       ) : (
                         <div className="flex items-center justify-center h-full">
                           <div className="text-center">
                             <p className="text-sm text-muted-foreground italic mb-2">
-                              {isListening ? "Waiting for incoming call..." : "Press the phone button and make a call to begin"}
+                              {isListening
+                                ? "Waiting for incoming call..."
+                                : "Press the phone button and make a call to begin"}
                             </p>
                             {isListening && (
                               <div className="flex justify-center gap-1">
                                 <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.1s" }}></div>
-                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.2s" }}></div>
+                                <div
+                                  className="w-2 h-2 bg-primary rounded-full animate-pulse"
+                                  style={{ animationDelay: "0.1s" }}
+                                ></div>
+                                <div
+                                  className="w-2 h-2 bg-primary rounded-full animate-pulse"
+                                  style={{ animationDelay: "0.2s" }}
+                                ></div>
                               </div>
                             )}
                           </div>
