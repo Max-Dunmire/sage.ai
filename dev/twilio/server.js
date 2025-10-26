@@ -90,15 +90,15 @@ class MediaStream {
         if (!text) return;
         const isFinal = evt?.is_final;
         if (isFinal) {
-          console.log(text)
+          console.log(`USER: ${text}`)
           
-          const { reply } = await sendTurn({
-            text
-          });
-          console.log(`${reply}`);
+          const { reply } = await sendTurn({text});
+          console.log(`SECRETARY: ${reply}`);
+
+          await new Promise(r => setTimeout(r, 2000));
         }
       } catch (err) {
-        console.log('wtf')
+        console.log('wtf broken')
       }
     });
 
