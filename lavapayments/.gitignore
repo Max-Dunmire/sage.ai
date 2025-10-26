@@ -1,0 +1,45 @@
+# Environment variables (IMPORTANT - keeps your API keys secret!)
+.env
+data.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Google Calendar tokens (contains sensitive OAuth tokens)
+token.json
+**/token.json
+credentials.json
+**/credentials.json
+
+# Credentials directory (contains OAuth tokens and API credentials)
+creds/
+
+# Test files
+debug.py
+test_*.py
+testing*.py
