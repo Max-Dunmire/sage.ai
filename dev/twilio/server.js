@@ -3,12 +3,11 @@ const path = require("path");
 var http = require("http");
 const fetch = require("node-fetch");
 const FormData = require("form-data");
-const textToAudio = require("./textToAudio")
+const textToAudio = require("./textToAudio.js");
+const { streamWavViaFfmpeg } = require('./ffmpegMuLawStreamer');
 var HttpDispatcher = require("httpdispatcher");
 var WebSocketServer = require("websocket").server;
 const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
-const WaveFile = require("wavefile").WaveFile;
-const MuLaw = require("alawmulaw").MuLaw;
 
 const dg = createClient(process.env.DEEPGRAM_API_KEY);
 const HTTP_SERVER_PORT = 8081;
@@ -137,7 +136,6 @@ dispatcher.onPost("/api/conversation", async function (req, res) {
   }
 });
 
-// API endpoint for demo - get example scenario response
 dispatcher.onPost("/api/demo-scenario", async function (req, res) {
   try {
     let body = "";
@@ -241,13 +239,13 @@ class MediaStream {
     this.dgConn = null;
     this.streamSid = null;
     this.hasSeenMedia = false;
-    
     this.partialText = "";
     this.finalSegments = [];
     this.lastFinalSeen = "";
     this.isThrottled = false;
     this.flushing = false;
     this.lastFlushedText = "";
+    this.isThrottled = false;
   }
 
   async openDeepgram() {
@@ -335,110 +333,44 @@ class MediaStream {
 
       const { reply } = await sendTurn({text});
 
-      const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
-      log(`Received WAV buffer, size: ${wavBuffer.length} bytes`);
+      if (this.isThrottled) return;
+      try {
+	      this.isThrottled = true;
+        console.log(`USER: ${text}`)
 
-      const muLawAudio = wavToMuLawOptimized(wavBuffer);
-      const durationSeconds = muLawAudio.length / 8000;
+        currentTranscript.push({
+          role: "user",
+          message: text,
+          timestamp: new Date().toISOString(),
+        });
 
-      const pcm16Data = wavToPCM16(wavBuffer);
-      const pcm16Array = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
+        const { reply } = await sendTurn({text});
 
-      let minBefore = pcm16Array[0], maxBefore = pcm16Array[0];
-      let sumBefore = 0, sumSquaresBefore = 0;
-      for (let i = 0; i < pcm16Array.length; i++) {
-        const val = pcm16Array[i];
-        minBefore = Math.min(minBefore, val);
-        maxBefore = Math.max(maxBefore, val);
-        sumBefore += val;
-        sumSquaresBefore += val * val;
-      }
-      const meanBefore = sumBefore / pcm16Array.length;
-      const rmsBefore = Math.sqrt(sumSquaresBefore / pcm16Array.length);
+        const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
 
-      log(`=== AUDIO STATS BEFORE RESAMPLING (44.1kHz) ===`);
-      log(`  Samples: ${pcm16Array.length}, Peak: ${maxBefore}, Min: ${minBefore}, RMS: ${rmsBefore.toFixed(0)}, Mean: ${meanBefore.toFixed(0)}`);
-      log(`  First 8 samples: [${Array.from(pcm16Array.slice(0, 8)).join(', ')}]`);
-
-      const resampled = resamplePCM16(pcm16Data, 44100, 8000);
-      const resampledArray = new Int16Array(resampled.buffer, resampled.byteOffset, resampled.length / 2);
-
-      let minAfter = resampledArray[0], maxAfter = resampledArray[0];
-      let sumAfter = 0, sumSquaresAfter = 0;
-      for (let i = 0; i < resampledArray.length; i++) {
-        const val = resampledArray[i];
-        minAfter = Math.min(minAfter, val);
-        maxAfter = Math.max(maxAfter, val);
-        sumAfter += val;
-        sumSquaresAfter += val * val;
-      }
-      const meanAfter = sumAfter / resampledArray.length;
-      const rmsAfter = Math.sqrt(sumSquaresAfter / resampledArray.length);
-
-      log(`=== AUDIO STATS AFTER RESAMPLING (8kHz) ===`);
-      log(`  Samples: ${resampledArray.length}, Peak: ${maxAfter}, Min: ${minAfter}, RMS: ${rmsAfter.toFixed(0)}, Mean: ${meanAfter.toFixed(0)}`);
-      log(`  Volume loss from resampling: ${(((rmsBefore - rmsAfter) / rmsBefore) * 100).toFixed(1)}%`);
-      log(`  First 8 samples: [${Array.from(resampledArray.slice(0, 8)).join(', ')}]`);
-
-      const amplified = amplifyAudio(resampled, 2.0);
-      const amplifiedArray = new Int16Array(amplified.buffer, amplified.byteOffset, amplified.length / 2);
-
-      let minAmp = amplifiedArray[0], maxAmp = amplifiedArray[0];
-      let sumAmp = 0, sumSquaresAmp = 0;
-      for (let i = 0; i < amplifiedArray.length; i++) {
-        const val = amplifiedArray[i];
-        minAmp = Math.min(minAmp, val);
-        maxAmp = Math.max(maxAmp, val);
-        sumAmp += val;
-        sumSquaresAmp += val * val;
-      }
-      const rmsAmp = Math.sqrt(sumSquaresAmp / amplifiedArray.length);
-
-      log(`=== AUDIO STATS AFTER AMPLIFICATION (2x) ===`);
-      log(`  Peak: ${maxAmp}, Min: ${minAmp}, RMS: ${rmsAmp.toFixed(0)}, Clipping: ${maxAmp > 32767 ? 'YES - DATA LOSS!' : 'No'}`);
-      log(`  First 8 samples: [${Array.from(amplifiedArray.slice(0, 8)).join(', ')}]`);
-
-      const testMulaw = muLawAudio[Math.floor(muLawAudio.length / 2)]; // Middle sample
-      const testDecoded = decodeMuLawToPCM16(Buffer.from([testMulaw]))[0];
-      const testOriginal = resampledArray[Math.floor(resampledArray.length / 2)];
-      const absOriginal = Math.abs(testOriginal);
-      const absDecoded = Math.abs(testDecoded);
-      const encodingError = absOriginal > 0 ? ((Math.abs(absOriginal - absDecoded) / absOriginal) * 100).toFixed(1) : "N/A";
-
-      log(`=== MU-LAW ENCODING TEST ===`);
-      log(`  Middle sample - Original: ${testOriginal}, Encoded then Decoded: ${testDecoded}, Error: ${encodingError}%`);
-
-      let clippingCount = 0;
-      let minMulaw = muLawAudio[0], maxMulaw = muLawAudio[0];
-      for (let i = 0; i < muLawAudio.length; i++) {
-        minMulaw = Math.min(minMulaw, muLawAudio[i]);
-        maxMulaw = Math.max(maxMulaw, muLawAudio[i]);
-        if (muLawAudio[i] === 0 || muLawAudio[i] === 255) clippingCount++;
-      }
-
-      log(`=== MU-LAW OUTPUT ANALYSIS ===`);
-      log(`  Byte range: ${minMulaw} to ${maxMulaw}, Extreme values: ${clippingCount}`);
-      log(`  First 16 mu-law bytes: [${Array.from(muLawAudio.slice(0, 16)).join(', ')}]`);
-
-      const chunkSize = 160; // 20ms at 8kHz
-      const padded = Buffer.alloc(Math.ceil(muLawAudio.length / chunkSize) * chunkSize);
-      muLawAudio.copy(padded);
-
-      log(`Padded audio from ${muLawAudio.length} to ${padded.length} bytes (${Math.ceil(muLawAudio.length / chunkSize)} chunks)`);
-
-        let chunksSent = 0;
-        for (let i = 0; i < padded.length; i += chunkSize) {
-          const chunk = padded.slice(i, i + chunkSize);
-          chunksSent++;
-          this.connection.send(JSON.stringify({
-            event: "media",
-            streamSid: this.streamSid,
-            media: { payload: chunk.toString('base64') }
-          }));
-          await new Promise(r => setTimeout(r, 20));
+        async function speak(ws, streamSid, fishWavBuffer) {
+          try {
+            await streamWavViaFfmpeg(ws, streamSid, fishWavBuffer, {
+              ffmpegPath: 'ffmpeg',     // or an absolute path if needed
+              useMarks: false,          // flip to true if you want flow-control marks
+              markEveryFrames: 50,      // ~1s between marks
+            });
+          } catch (err) {
+            console.error('TTS stream error:', err);
+          }
         }
-        log(`Sent ${chunksSent} audio chunks (total ${padded.length} bytes) to Twilio`);
 
+        console.log(`SECRETARY: ${reply}`);
+
+        await speak(this.connection, this.streamSid, wavBuffer);
+
+        currentTranscript.push({
+          role: "secretary",
+          message: reply,
+          timestamp: new Date().toISOString(),
+        });
+
+        await sleep(5000);
         console.log(`SECRETARY: ${reply}`);
 
         currentTranscript.push({
@@ -520,259 +452,4 @@ class MediaStream {
   }
 }
 
-
-const MULAW_DECODE_TABLE = (() => {
-  const table = new Int16Array(256);
-  for (let i = 0; i < 256; i++) {
-    let u = ~i & 0xff;
-    let t = ((u & 0x0f) << 3) + 0x84;
-    t <<= (u & 0x70) >> 4;
-    t -= 0x84;
-    table[i] = (u & 0x80) ? (0x84 - t) : (t - 0x84);
-  }
-  return table;
-})();
-
-const MULAW_ENCODE_TABLE = (() => {
-  const MULAW_MAX = 32635;
-  const MULAW_MIN = -32768;
-  const table = new Uint8Array(65536);
-
-  for (let i = 0; i < 256; i++) {
-    const pcm = MULAW_DECODE_TABLE[i];
-    table[(pcm & 0xFFFF)] = i;
-  }
-
-  return table;
-})();
-
-function decodeMuLawToPCM16(muLawBuf) {
-  const out = new Int16Array(muLawBuf.length);
-  for (let i = 0; i < muLawBuf.length; i++) {
-    out[i] = MULAW_DECODE_TABLE[muLawBuf[i]];
-  }
-  return out;
-}
-
-/**
- * Encode PCM16 audio to Mu-law format for Twilio
- * Standard G.711 μ-law encoding (ITU-T G.711)
- * @param {Int16Array|Buffer} pcm16Data - PCM16 audio data (8kHz, mono)
- * @returns {Buffer} Mu-law encoded data
- */
-function encodePCM16ToMuLaw(pcm16Data) {
-  // Convert Buffer to Int16Array if needed
-  let pcmArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    pcmArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const muLaw = Buffer.alloc(pcmArray.length);
-  const MULAW_MAX = 32635;
-  const MULAW_THRESHOLD = 132;
-
-  for (let i = 0; i < pcmArray.length; i++) {
-    let pcm = pcmArray[i];
-
-    const sign = pcm < 0 ? 0x80 : 0x00;
-
-    if (pcm < 0) {
-      pcm = -pcm;
-    }
-
-    if (pcm > MULAW_MAX) {
-      pcm = MULAW_MAX;
-    }
-
-    pcm = pcm + MULAW_THRESHOLD;
-
-    let exponent = 7;
-    for (let mask = 0x4000; mask > 0; mask >>= 1) {
-      if (pcm >= (mask << 1)) {
-        break;
-      }
-      exponent--;
-    }
-
-    const mantissa = (pcm >> (exponent + 3)) & 0x0F;
-
-    muLaw[i] = ~(sign | (exponent << 4) | mantissa) & 0xFF;
-  }
-
-  return muLaw;
-}
-
-function wavToPCM16(wavBuffer) {
-  return wavBuffer.slice(44);
-}
-
-function applyAntiAliasingFilter(input, decimationFactor) {
-  const output = new Int16Array(input.length);
-  const windowSize = Math.ceil(decimationFactor * 2);
-
-  for (let i = 0; i < input.length; i++) {
-    let sum = 0;
-    let weight = 0;
-
-    const start = Math.max(0, i - Math.floor(windowSize / 2));
-    const end = Math.min(input.length, i + Math.ceil(windowSize / 2));
-
-    for (let j = start; j < end; j++) {
-      sum += input[j];
-      weight++;
-    }
-
-    output[i] = Math.round(sum / weight);
-  }
-
-  return output;
-}
-
-function resamplePCM16(pcm16Data, inputSampleRate, outputSampleRate) {
-  let inputArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    inputArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const ratio = inputSampleRate / outputSampleRate;
-
-  let filtered = inputArray;
-  if (ratio > 2) {
-    filtered = applyAntiAliasingFilter(inputArray, ratio);
-  }
-
-  const outputLength = Math.floor(filtered.length / ratio);
-  const output = new Int16Array(outputLength);
-
-  for (let i = 0; i < outputLength; i++) {
-    const srcIndex = i * ratio;
-    const srcFloor = Math.floor(srcIndex);
-    const srcCeil = Math.min(srcFloor + 1, filtered.length - 1);
-    const fraction = srcIndex - srcFloor;
-
-    output[i] = Math.round(
-      filtered[srcFloor] * (1 - fraction) + filtered[srcCeil] * fraction
-    );
-  }
-
-  return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
-}
-
-function parseWavHeader(wavBuffer) {
-  if (wavBuffer.length < 44) {
-    throw new Error("WAV buffer too small, invalid WAV file");
-  }
-
-  const sampleRate = wavBuffer.readUInt32LE(24);
-  const channels = wavBuffer.readUInt16LE(22);
-  const bitsPerSample = wavBuffer.readUInt16LE(34);
-  const dataSize = wavBuffer.length - 44;
-
-  return {
-    sampleRate,
-    channels,
-    bitsPerSample,
-    dataSize,
-    numSamples: Math.floor(dataSize / (bitsPerSample / 8) / channels)
-  };
-}
-
-function amplifyAudio(pcm16Data, gainFactor = 4.0) {
-  let pcmArray = pcm16Data;
-  if (Buffer.isBuffer(pcm16Data)) {
-    pcmArray = new Int16Array(pcm16Data.buffer, pcm16Data.byteOffset, pcm16Data.length / 2);
-  }
-
-  const output = new Int16Array(pcmArray.length);
-  for (let i = 0; i < pcmArray.length; i++) {
-    const amplified = pcmArray[i] * gainFactor;
-    output[i] = Math.max(-32768, Math.min(32767, amplified));
-  }
-
-  return Buffer.from(output.buffer, output.byteOffset, output.byteLength);
-}
-
-function wavToMuLawOptimized(wavBuffer) {
-  try {
-    const wav = new WaveFile(wavBuffer);
-
-    const originalRate = wav.fmt.sampleRate;
-    const originalChannels = wav.fmt.numChannels;
-
-    if (originalRate !== 8000) {
-      wav.toSampleRate(8000);
-    }
-
-    if (wav.fmt.formatCode !== 1) {
-      wav.toRawFile();
-    }
-
-    const pcm16Buffer = Buffer.from(wav.data.samples.buffer, wav.data.samples.byteOffset, wav.data.samples.byteLength);
-    const pcm16Array = new Int16Array(pcm16Buffer.buffer, pcm16Buffer.byteOffset, pcm16Buffer.length / 2);
-
-    const gainFactor = 1.5;
-    const amplified = new Int16Array(pcm16Array.length);
-    let maxVal = 0;
-
-    for (let i = 0; i < pcm16Array.length; i++) {
-      const val = pcm16Array[i] * gainFactor;
-      const clipped = Math.max(-32768, Math.min(32767, val));
-      amplified[i] = clipped;
-      maxVal = Math.max(maxVal, Math.abs(clipped));
-    }
-
-    const muLawBuffer = Buffer.alloc(amplified.length);
-    for (let i = 0; i < amplified.length; i++) {
-      muLawBuffer[i] = MuLaw.encode(amplified[i]);
-    }
-
-    return muLawBuffer;
-
-  } catch (err) {
-    log(`Error in wavToMuLawOptimized: ${err.message}, falling back to original implementation`);
-    return wavToMuLaw(wavBuffer);
-  }
-}
-
-function wavToMuLaw(wavBuffer) {
-  const wavInfo = parseWavHeader(wavBuffer);
-  log(`WAV Info: ${wavInfo.sampleRate}Hz, ${wavInfo.channels} channels, ${wavInfo.bitsPerSample} bits/sample`);
-
-  const pcm16 = wavToPCM16(wavBuffer);
-
-  let audioToEncode = pcm16;
-  if (wavInfo.sampleRate !== 8000) {
-    log(`Resampling from ${wavInfo.sampleRate}Hz to 8000Hz`);
-    audioToEncode = resamplePCM16(pcm16, wavInfo.sampleRate, 8000);
-  }
-  const amplified = amplifyAudio(audioToEncode, 2.0);
-
-  return encodePCM16ToMuLaw(amplified);
-}
-
-function pcm16ToWav(pcmBuf, sampleRate) {
-  const numChannels = 1;
-  const bitsPerSample = 16;
-  const byteRate = (sampleRate * numChannels * bitsPerSample) >> 3;
-  const blockAlign = (numChannels * bitsPerSample) >> 3;
-  const dataSize = pcmBuf.length;
-
-  const header = Buffer.alloc(44);
-  header.write("RIFF", 0);
-  header.writeUInt32LE(36 + dataSize, 4);
-  header.write("WAVE", 8);
-  header.write("fmt ", 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(numChannels, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(byteRate, 28);
-  header.writeUInt16LE(blockAlign, 32);
-  header.writeUInt16LE(bitsPerSample, 34);
-  header.write("data", 36);
-  header.writeUInt32LE(dataSize, 40);
-  return Buffer.concat([header, pcmBuf]);
-}
-
 wsserver.listen(HTTP_SERVER_PORT, function () { console.log("Server listening on: http://localhost:%s", HTTP_SERVER_PORT); });
-
