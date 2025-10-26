@@ -16,7 +16,6 @@ const HTTP_SERVER_PORT = 8081;
 var dispatcher = new HttpDispatcher();
 var wsserver = http.createServer(handleRequest);
 
-// Global state for tracking the current call transcript
 var currentTranscript = [];
 var isCallActive = false;
 
@@ -54,7 +53,6 @@ dispatcher.onPost("/twiml", function (req, res) {
   readStream.pipe(res);
 });
 
-// API endpoint to get the current live transcript
 dispatcher.onGet("/api/transcript", function (req, res) {
   res.writeHead(200, {
     "Content-Type": "application/json",
@@ -68,7 +66,6 @@ dispatcher.onGet("/api/transcript", function (req, res) {
   }));
 });
 
-// API endpoint to reset the transcript (for starting a new demo)
 dispatcher.onPost("/api/transcript/reset", function (req, res) {
   currentTranscript = [];
   isCallActive = false;
@@ -84,7 +81,6 @@ dispatcher.onPost("/api/transcript/reset", function (req, res) {
   }));
 });
 
-// API endpoint for demo - get conversation
 dispatcher.onPost("/api/conversation", async function (req, res) {
   try {
     let body = "";
@@ -99,7 +95,6 @@ dispatcher.onPost("/api/conversation", async function (req, res) {
 
         log(`Demo conversation - Persona: ${persona}, User: ${userMessage}`);
 
-        // Call the backend turn endpoint
         const { reply } = await sendTurn({ text: userMessage });
 
         res.writeHead(200, {
@@ -137,7 +132,6 @@ dispatcher.onPost("/api/conversation", async function (req, res) {
   }
 });
 
-// API endpoint for demo - get example scenario response
 dispatcher.onPost("/api/demo-scenario", async function (req, res) {
   try {
     let body = "";
@@ -152,7 +146,6 @@ dispatcher.onPost("/api/demo-scenario", async function (req, res) {
 
         log(`Demo scenario - Persona: ${persona}, Scenario: ${scenario}`);
 
-        // For demo purposes, return example responses
         const scenarioResponses = {
           spam: {
             userMessage: "Unknown Number is calling...",
@@ -205,7 +198,6 @@ dispatcher.onPost("/api/demo-scenario", async function (req, res) {
   }
 });
 
-// CORS preflight
 dispatcher.onOptions(/.*/, function (req, res) {
   res.writeHead(200, {
     "Access-Control-Allow-Origin": "*",
