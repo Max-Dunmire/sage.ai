@@ -34,7 +34,7 @@ const GoogleCalendar = ({ isActive = false }: GoogleCalendarProps) => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const previousEventIds = useRef<Set<string>>(new Set());
 
-  const API_BASE_URL = "http://localhost:3001";
+  const API_BASE_URL = "https://sage.munkey.cc";
 
   // Fetch calendar events from backend
   const fetchEvents = async () => {
