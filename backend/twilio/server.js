@@ -488,6 +488,51 @@ class MediaStream {
     this.flushing = false;
     this.lastFlushedText = "";
     this.isThrottled = false;
+    this.playing = false;     // a simple mutex for TTS playback
+    this.playQueue = [];      // FIFO queue of replies to speak
+  }
+
+
+  enqueueReply(reply) {
+    this.playQueue.push(reply);
+    if (!this.playing) void this._drainPlaybackQueue();
+  }
+
+  async _drainPlaybackQueue() {
+    if (this.playing) return;
+    this.playing = true;
+
+    try {
+      while (this.playQueue.length > 0) {
+        const nextReply = this.playQueue.shift();
+
+        // TTS
+        const wavBuffer = await textToAudio(nextReply, process.env.FISH_API_KEY);
+
+        // Connection might be gone
+        if (!this.connection || this.connection.connected === false) break;
+
+        // Stream audio to Twilio, await completion before next item
+        await streamWavViaFfmpeg(this.connection, this.streamSid, wavBuffer, {
+          ffmpegPath: 'ffmpeg',
+          useMarks: false,
+          markEveryFrames: 50,
+        });
+
+        // push to transcript once spoken
+        currentTranscript.push({
+          role: "secretary",
+          message: nextReply,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error("TTS/playback error:", err);
+    } finally {
+      this.playing = false;
+      // if anything arrived while we were playing, drain again
+      if (this.playQueue.length > 0) void this._drainPlaybackQueue();
+    }
   }
 
   async openDeepgram() {
@@ -544,69 +589,43 @@ class MediaStream {
     console.log("Deepgram live connected");
   }
 
-  async _maybeFlush(reason) {
-    if (this.flushing || this.isThrottled) return;
-    this.flushing = true;
+async _maybeFlush(reason) {
+  if (this.flushing || this.isThrottled) return;
+  this.flushing = true;
 
-    const assembled = (this.finalSegments.length
-      ? this.finalSegments.join(" ")
-      : this.partialText).replace(/\s+/g, " ").trim();
+  const assembled = (this.finalSegments.length ? this.finalSegments.join(" ") : this.partialText)
+    .replace(/\s+/g, " ").trim();
 
-    this.finalSegments = [];
-    this.partialText = "";
-    this.lastFinalSeen = "";
+  this.finalSegments = [];
+  this.partialText = "";
+  this.lastFinalSeen = "";
 
-    if (!assembled) { this.flushing = false; return; }
+  if (!assembled) { this.flushing = false; return; }
+  if (assembled === this.lastFlushedText) { this.flushing = false; return; }
+  this.lastFlushedText = assembled;
 
-    if (assembled === this.lastFlushedText) {
-      this.flushing = false; 
-      return;
-    }
-    this.lastFlushedText = assembled;
+  try {
+    this.isThrottled = true;
+    console.log(`USER: ${assembled}`);
 
-    try {
-      this.isThrottled = true;
-      console.log(`USER: ${assembled}`)
+    currentTranscript.push({
+      role: "user",
+      message: assembled,
+      timestamp: new Date().toISOString(),
+    });
 
-      currentTranscript.push({
-        role: "user",
-        message: assembled,
-        timestamp: new Date().toISOString(),
-      });
+    const { reply } = await sendTurn({ text: assembled, stream_sid: this.streamSid });
+    console.log(`SECRETARY: ${reply}`);
 
-      const { reply } = await sendTurn({text: assembled, stream_sid: this.streamSid});
-
-      const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
-
-      async function speak(ws, streamSid, fishWavBuffer) {
-          try {
-            await streamWavViaFfmpeg(ws, streamSid, fishWavBuffer, {
-              ffmpegPath: 'ffmpeg',     // or an absolute path if needed
-              useMarks: false,          // flip to true if you want flow-control marks
-              markEveryFrames: 50,      // ~1s between marks
-            });
-          } catch (err) {
-            console.error('TTS stream error:', err);
-          }
-        }
-
-      console.log(`SECRETARY: ${reply}`);
-
-      await speak(this.connection, this.streamSid, wavBuffer);
-
-      currentTranscript.push({
-        role: "secretary",
-        message: reply,
-        timestamp: new Date().toISOString(),
-      });
-
-    } catch (e) {
-      console.error("sendTurn failed:", e);
-    } finally {
-      setTimeout(() => { this.isThrottled = false; }, 400);
-      this.flushing = false;
-    }
+    // enqueue reply to be spoken; playback is serialized
+    this._enqueueReply(reply);
+  } catch (e) {
+    console.error("sendTurn failed:", e);
+  } finally {
+    this.isThrottled = false;
+    this.flushing = false;
   }
+}
 
   async processMessage(message) {
     if (message.type !== "utf8") return;
