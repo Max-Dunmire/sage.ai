@@ -75,11 +75,12 @@ class MediaStream {
     this.streamSid = null;
     this.hasSeenMedia = false;
     
-    this.partialText = ""; 
-    this.finalText = "";
+    this.partialText = "";
+    this.finalSegments = [];
+    this.lastFinalSeen = "";
     this.isThrottled = false;
     this.flushing = false;
-    this.lastFlushedHash = "";
+    this.lastFlushedText = "";
   }
 
   async openDeepgram() {
@@ -109,7 +110,11 @@ class MediaStream {
       if (!text) return;
 
       if (evt.is_final === true) {
-        this.finalText = text;
+        if (text !== this.lastFinalSeen) {
+          this.finalSegments.push(text);
+          this.lastFinalSeen = text;
+        }
+        this.partialText = "";
       } else {
         this.partialText = text;
       }
@@ -136,27 +141,26 @@ class MediaStream {
     if (this.flushing || this.isThrottled) return;
     this.flushing = true;
 
-    const text = (this.finalText || this.partialText || "").trim();
+    const assembled = (this.finalSegments.length
+      ? this.finalSegments.join(" ")
+      : this.partialText).replace(/\s+/g, " ").trim();
 
-    this.finalText = "";
+    this.finalSegments = [];
     this.partialText = "";
+    this.lastFinalSeen = "";
 
-    if (!text) {
-      this.flushing = false;
+    if (!assembled) { this.flushing = false; return; }
+
+    if (assembled === this.lastFlushedText) {
+      this.flushing = false; 
       return;
     }
-
-    const hash = text + "::" + reason;
-    if (this.lastFlushedHash === hash) {
-      this.flushing = false;
-      return;
-    }
-    this.lastFlushedHash = hash;
+    this.lastFlushedText = assembled;
 
     try {
       this.isThrottled = true;
-      console.log(`USER: ${text}`);
-      const { reply } = await sendTurn({ text });
+      console.log(`USER: ${assembled}`);
+      const { reply } = await sendTurn({ text: assembled });
       console.log(`SECRETARY: ${reply}`);
     } catch (e) {
       console.error("sendTurn failed:", e);
