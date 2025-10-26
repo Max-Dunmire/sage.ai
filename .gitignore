@@ -1,3 +1,4 @@
+service_keys.json
 .venv
 __pycache__/
 dev/twilio/scripts/creds/
