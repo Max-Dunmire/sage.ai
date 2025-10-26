@@ -130,7 +130,7 @@ Scheduling:
   Do you want me to book "<Day of the Week>, <Month> <Day>, <Year>, <Start Time> - <End Time> (<Length in Minutes>)"?
   Reply yes or no.
 - Only after “yes”, call calendar_create_event.
-Keep replies short and human. Avoid lists unless offering slots.
+Keep replies short and human. Avoid lists and bulletpoints unless offering slots.
 """
 
     def _exec_tool(self, block):
