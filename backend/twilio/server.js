@@ -8,7 +8,29 @@ const { streamWavViaFfmpeg } = require('./ffmpegMuLawStreamer');
 var HttpDispatcher = require("httpdispatcher");
 var WebSocketServer = require("websocket").server;
 const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
+const { google } = require("googleapis");
 
+let auth;
+let calendar;
+
+try {
+  const serviceAccountPath = './service_keys.json';
+  const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+
+  auth = new google.auth.GoogleAuth({
+    credentials: serviceAccount,
+    scopes: ['https://www.googleapis.com/auth/calendar'],
+  });
+
+  calendar = google.calendar({ version: 'v3', auth });
+  console.log('Google Calendar API initialized with service account');
+} catch (error) {
+  console.warn('Google Calendar API not initialized:', error.message);
+  console.warn('Calendar features will be disabled. Add service-account-key.json to enable.');
+}
+
+// Calendar ID from environment or use primary
+const CALENDAR_ID = process.env.GOOGLE_CALENDAR_ID || 'primary';
 const dg = createClient(process.env.DEEPGRAM_API_KEY);
 const HTTP_SERVER_PORT = 8081;
 
@@ -199,6 +221,228 @@ dispatcher.onPost("/api/demo-scenario", async function (req, res) {
     res.end(JSON.stringify({
       success: false,
       error: err.message,
+    }));
+  }
+});
+
+dispatcher.onGet("/api/calendar/events", async function (req, res) {
+  try {
+    if (!calendar) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Calendar service not initialized. Check service account configuration.'
+      }));
+    }
+
+    const url = new URL(req.url, `http://${req.headers.host}`);
+    const timeMin = url.searchParams.get('timeMin');
+    const timeMax = url.searchParams.get('timeMax');
+    const maxResults = url.searchParams.get('maxResults') || '10';
+
+    const response = await calendar.events.list({
+      calendarId: CALENDAR_ID,
+      timeMin: timeMin || new Date().toISOString(),
+      timeMax: timeMax || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      maxResults: parseInt(maxResults),
+      singleEvents: true,
+      orderBy: 'startTime',
+    });
+
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: true,
+      events: response.data.items || [],
+    }));
+  } catch (error) {
+    console.error('Error fetching calendar events:', error);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: error.message || 'Failed to fetch calendar events'
+    }));
+  }
+});
+dispatcher.onPost("/api/calendar/events", async function (req, res) {
+  try {
+    if (!calendar) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Calendar service not initialized. Check service account configuration.'
+      }));
+    }
+
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body);
+        const { event } = data;
+
+        if (!event || !event.summary || !event.start) {
+          res.writeHead(400, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+          });
+          return res.end(JSON.stringify({ error: 'Event summary and start time required' }));
+        }
+
+        const response = await calendar.events.insert({
+          calendarId: CALENDAR_ID,
+          requestBody: event,
+        });
+
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          success: true,
+          event: response.data,
+        }));
+      } catch (error) {
+        console.error('Error creating calendar event:', error);
+        res.writeHead(500, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          success: false,
+          error: error.message || 'Failed to create calendar event'
+        }));
+      }
+    });
+  } catch (error) {
+    console.error('Error handling create event request:', error);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: error.message
+    }));
+  }
+});
+
+// Update a calendar event
+dispatcher.onPut("/api/calendar/events/:eventId", async function (req, res) {
+  try {
+    if (!calendar) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Calendar service not initialized. Check service account configuration.'
+      }));
+    }
+
+    const eventId = req.params.eventId;
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body);
+        const { event } = data;
+
+        const response = await calendar.events.update({
+          calendarId: CALENDAR_ID,
+          eventId: eventId,
+          requestBody: event,
+        });
+
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          success: true,
+          event: response.data,
+        }));
+      } catch (error) {
+        console.error('Error updating calendar event:', error);
+        res.writeHead(500, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          success: false,
+          error: error.message || 'Failed to update calendar event'
+        }));
+      }
+    });
+  } catch (error) {
+    console.error('Error handling update event request:', error);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: error.message
+    }));
+  }
+});
+
+// Delete a calendar event
+dispatcher.onDelete("/api/calendar/events/:eventId", async function (req, res) {
+  try {
+    if (!calendar) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      });
+      return res.end(JSON.stringify({
+        success: false,
+        error: 'Calendar service not initialized. Check service account configuration.'
+      }));
+    }
+
+    const eventId = req.params.eventId;
+
+    await calendar.events.delete({
+      calendarId: CALENDAR_ID,
+      eventId: eventId,
+    });
+
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: true,
+      message: 'Event deleted successfully',
+    }));
+  } catch (error) {
+    console.error('Error deleting calendar event:', error);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: error.message || 'Failed to delete calendar event'
     }));
   }
 });
