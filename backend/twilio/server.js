@@ -600,13 +600,6 @@ class MediaStream {
         timestamp: new Date().toISOString(),
       });
 
-      console.log(`SECRETARY: ${reply}`);
-
-      currentTranscript.push({
-        role: "secretary",
-        message: reply,
-        timestamp: new Date().toISOString()
-      });
     } catch (e) {
       console.error("sendTurn failed:", e);
     } finally {
