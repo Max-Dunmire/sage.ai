@@ -4,7 +4,7 @@
   "description": "Basic Connet Streams demo",
   "main": "server.js",
   "scripts": {
-    "start": "node --env-file=.env server.js"
+    "start": "node --watch --env-file=.env server.js"
   },
   "repository": {
     "type": "git",

@@ -1,4 +1,3 @@
-require('dotenv').config();
 const fs = require("fs");
 const path = require("path");
 var http = require("http");
@@ -13,6 +12,10 @@ const HTTP_SERVER_PORT = 8080;
 
 var dispatcher = new HttpDispatcher();
 var wsserver = http.createServer(handleRequest);
+
+// Global state for tracking the current call transcript
+var currentTranscript = [];
+var isCallActive = false;
 
 var mediaws = new WebSocketServer({
   httpServer: wsserver,
@@ -42,6 +45,167 @@ dispatcher.onPost("/twiml", function (req, res) {
 
   var readStream = fs.createReadStream(filePath);
   readStream.pipe(res);
+});
+
+// API endpoint to get the current live transcript
+dispatcher.onGet("/api/transcript", function (req, res) {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+  });
+
+  res.end(JSON.stringify({
+    success: true,
+    isCallActive: isCallActive,
+    transcript: currentTranscript,
+  }));
+});
+
+// API endpoint to reset the transcript (for starting a new demo)
+dispatcher.onPost("/api/transcript/reset", function (req, res) {
+  currentTranscript = [];
+  isCallActive = false;
+
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+  });
+
+  res.end(JSON.stringify({
+    success: true,
+    message: "Transcript reset",
+  }));
+});
+
+// API endpoint for demo - get conversation
+dispatcher.onPost("/api/conversation", async function (req, res) {
+  try {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body);
+        const { userMessage, persona } = data;
+
+        log(`Demo conversation - Persona: ${persona}, User: ${userMessage}`);
+
+        // Call the backend turn endpoint
+        const { reply } = await sendTurn({ text: userMessage });
+
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+
+        res.end(JSON.stringify({
+          success: true,
+          message: reply,
+          persona: persona,
+        }));
+      } catch (err) {
+        log("Error processing conversation:", err);
+        res.writeHead(500, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          success: false,
+          error: err.message,
+        }));
+      }
+    });
+  } catch (err) {
+    log("Error handling conversation request:", err);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: err.message,
+    }));
+  }
+});
+
+// API endpoint for demo - get example scenario response
+dispatcher.onPost("/api/demo-scenario", async function (req, res) {
+  try {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk.toString();
+    });
+
+    req.on("end", async () => {
+      try {
+        const data = JSON.parse(body);
+        const { scenario, persona } = data;
+
+        log(`Demo scenario - Persona: ${persona}, Scenario: ${scenario}`);
+
+        // For demo purposes, return example responses
+        const scenarioResponses = {
+          spam: {
+            userMessage: "Unknown Number is calling...",
+            sageMessage: "Sage.ai has detected a spam caller and blocked the call automatically.",
+          },
+          meeting: {
+            userMessage: "John from Acme Corp is calling to schedule a meeting.",
+            sageMessage: "I've checked your calendar and scheduled the meeting for Tuesday at 2 PM. I'll send a confirmation email.",
+          },
+          priority: {
+            userMessage: "Sarah Johnson is calling.",
+            sageMessage: "Sarah Johnson is in your priority contacts. Connecting you immediately.",
+          },
+        };
+
+        const response = scenarioResponses[scenario] || scenarioResponses.spam;
+
+        res.writeHead(200, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+
+        res.end(JSON.stringify({
+          success: true,
+          ...response,
+          persona: persona,
+        }));
+      } catch (err) {
+        log("Error processing demo scenario:", err);
+        res.writeHead(500, {
+          "Content-Type": "application/json",
+          "Access-Control-Allow-Origin": "*",
+        });
+        res.end(JSON.stringify({
+          success: false,
+          error: err.message,
+        }));
+      }
+    });
+  } catch (err) {
+    log("Error handling demo scenario request:", err);
+    res.writeHead(500, {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+    });
+    res.end(JSON.stringify({
+      success: false,
+      error: err.message,
+    }));
+  }
+});
+
+// CORS preflight
+dispatcher.onOptions(/.*/, function (req, res) {
+  res.writeHead(200, {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
+  res.end();
 });
 
 mediaws.on("connect", function (connection) {
@@ -91,9 +255,23 @@ class MediaStream {
         const isFinal = evt?.is_final;
         if (isFinal) {
           console.log(`USER: ${text}`)
-          
+
+          // Add user message to transcript
+          currentTranscript.push({
+            role: "user",
+            message: text,
+            timestamp: new Date().toISOString(),
+          });
+
           const { reply } = await sendTurn({text});
           console.log(`SECRETARY: ${reply}`);
+
+          // Add AI response to transcript
+          currentTranscript.push({
+            role: "secretary",
+            message: reply,
+            timestamp: new Date().toISOString(),
+          });
 
           await new Promise(r => setTimeout(r, 2000));
         }

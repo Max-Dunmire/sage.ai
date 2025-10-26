@@ -1,20 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Phone, Mic, MicOff, Volume2, VolumeX, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 type PersonaType = "drMarkovitz" | "kimberly" | "stacy" | null;
 
+interface TranscriptEntry {
+  role: "user" | "secretary";
+  message: string;
+  timestamp: string;
+}
+
 const Demo = () => {
   const [isListening, setIsListening] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [demoStarted, setDemoStarted] = useState(false);
   const [selectedPersona, setSelectedPersona] = useState<PersonaType>(null);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [isCallActive, setIsCallActive] = useState(false);
+  const [error, setError] = useState<string>("");
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Transcription state - will be updated by backend
-  // Backend should call setTranscription with the transcription text
-  // Example: setTranscription("Caller: Hello, is this Dr. Markovitz?\nSage.ai: Yes, this is Dr. Markovitz's office. How can I help you?")
-  const [transcription, setTranscription] = useState<string>("");
+  const API_BASE_URL = "http://localhost:8080";
 
   const personas = [
     { id: "drMarkovitz" as const, name: "Dr. Markovitz", subtitle: "Medical Professional" },
@@ -22,16 +29,60 @@ const Demo = () => {
     { id: "stacy" as const, name: "Stacy", subtitle: "Front Desk" },
   ];
 
-  // TODO: Backend integration
-  // useEffect(() => {
-  //   if (demoStarted && isListening) {
-  //     // Connect to backend WebSocket or API
-  //     // const socket = connectToBackend(selectedPersona);
-  //     // socket.on('transcription', (text) => {
-  //     //   setTranscription(prev => prev + '\n' + text);
-  //     // });
-  //   }
-  // }, [demoStarted, isListening, selectedPersona]);
+  // Fetch the live transcript from the server
+  const fetchTranscript = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/transcript`);
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        setTranscript(data.transcript);
+        setIsCallActive(data.isCallActive);
+        setError("");
+      }
+    } catch (error) {
+      console.error("Error fetching transcript:", error);
+      setError("Failed to connect to server. Make sure it's running on http://localhost:8080");
+    }
+  };
+
+  // Reset transcript for a new demo
+  const resetTranscript = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/transcript/reset`, {
+        method: "POST",
+      });
+
+      if (response.ok) {
+        setTranscript([]);
+        setError("");
+      }
+    } catch (error) {
+      console.error("Error resetting transcript:", error);
+    }
+  };
+
+  // Poll for transcript updates when demo is started
+  useEffect(() => {
+    if (demoStarted && isListening) {
+      // Fetch immediately
+      fetchTranscript();
+
+      // Then poll every 500ms for updates
+      pollingIntervalRef.current = setInterval(() => {
+        fetchTranscript();
+      }, 500);
+
+      return () => {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+        }
+      };
+    }
+  }, [demoStarted, isListening]);
 
   const handlePersonaChange = (personaId: PersonaType) => {
     setSelectedPersona(personaId);
@@ -39,16 +90,17 @@ const Demo = () => {
     if (demoStarted) {
       setDemoStarted(false);
       setIsListening(false);
-      setTranscription("");
+      resetTranscript();
     }
   };
 
-  const startDemo = () => {
+  const startDemo = async () => {
     if (!selectedPersona) {
       alert("Please select a persona to start the demo");
       return;
     }
     setDemoStarted(true);
+    await resetTranscript();
   };
 
   const demoScenarios = [
@@ -259,9 +311,12 @@ const Demo = () => {
               <div className="text-center">
                 <p className="text-lg font-medium">
                   {isListening ? (
-                    <span className="text-primary">Sage.ai is listening...</span>
+                    <>
+                      <span className="text-primary">Sage.ai is listening...</span>
+                      {isCallActive && <p className="text-sm text-muted-foreground mt-1">(Call detected)</p>}
+                    </>
                   ) : (
-                    <span className="text-muted-foreground">Click the phone to start demo</span>
+                    <span className="text-muted-foreground">Click the phone to start monitoring</span>
                   )}
                 </p>
               </div>
@@ -270,20 +325,47 @@ const Demo = () => {
               {demoStarted && (
                 <div className="animate-fade-in">
                   <div className="border-t border-muted pt-6">
-                    <h3 className="text-lg font-semibold mb-3 text-center">Live Transcription</h3>
-                    <div className="bg-muted/30 rounded-lg p-4 min-h-[120px] max-h-[300px] overflow-y-auto">
-                      {transcription ? (
-                        <div className="space-y-2">
-                          {transcription.split('\n').map((line, index) => (
-                            <p key={index} className="text-sm leading-relaxed">
-                              {line}
-                            </p>
+                    <h3 className="text-lg font-semibold mb-3 text-center">Live Call Transcript</h3>
+
+                    {error && (
+                      <div className="bg-destructive/10 border border-destructive/50 rounded-lg p-3 mb-4">
+                        <p className="text-sm text-destructive">{error}</p>
+                      </div>
+                    )}
+
+                    <div className="bg-muted/30 rounded-lg p-4 min-h-[200px] max-h-[400px] overflow-y-auto space-y-3">
+                      {transcript && transcript.length > 0 ? (
+                        <div className="space-y-3">
+                          {transcript.map((entry, index) => (
+                            <div key={index} className="space-y-1">
+                              <p className={`text-xs font-semibold uppercase tracking-wide ${
+                                entry.role === "user"
+                                  ? "text-blue-600 dark:text-blue-400"
+                                  : "text-green-600 dark:text-green-400"
+                              }`}>
+                                {entry.role === "user" ? "Caller" : "Sage.ai"}
+                              </p>
+                              <p className="text-sm leading-relaxed text-foreground">
+                                {entry.message}
+                              </p>
+                            </div>
                           ))}
                         </div>
                       ) : (
-                        <p className="text-sm text-muted-foreground text-center italic">
-                          Waiting for call transcription...
-                        </p>
+                        <div className="flex items-center justify-center h-full">
+                          <div className="text-center">
+                            <p className="text-sm text-muted-foreground italic mb-2">
+                              {isListening ? "Waiting for incoming call..." : "Press the phone button and make a call to begin"}
+                            </p>
+                            {isListening && (
+                              <div className="flex justify-center gap-1">
+                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.1s" }}></div>
+                                <div className="w-2 h-2 bg-primary rounded-full animate-pulse" style={{ animationDelay: "0.2s" }}></div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </div>

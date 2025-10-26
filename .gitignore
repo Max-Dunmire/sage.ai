@@ -1,6 +1,7 @@
 .venv
 __pycache__/
 dev/twilio/scripts/creds/
+dev/twilio/scripts/Data.env
 
 #Logs
 logs
