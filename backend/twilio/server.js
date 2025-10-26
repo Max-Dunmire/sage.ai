@@ -118,8 +118,6 @@ dispatcher.onPost("/api/conversation", async function (req, res) {
         const data = JSON.parse(body);
         const { userMessage, persona } = data;
 
-        log(`Demo conversation - Persona: ${persona}, User: ${userMessage}`);
-
         // Call the backend turn endpoint
         const { reply } = await sendTurn({ text: userMessage, stream_sid: this.streamSid });
 
@@ -576,7 +574,7 @@ class MediaStream {
         timestamp: new Date().toISOString(),
       });
 
-      const { reply } = await sendTurn({assembled});
+      const { reply } = await sendTurn({text: assembled, stream_sid: this.streamSid});
 
       const wavBuffer = await textToAudio(reply, process.env.FISH_API_KEY);
 
