@@ -8,7 +8,7 @@ var WebSocketServer = require("websocket").server;
 const { createClient, LiveTranscriptionEvents } = require("@deepgram/sdk");
 
 const dg = createClient(process.env.DEEPGRAM_API_KEY);
-const HTTP_SERVER_PORT = 8080;
+const HTTP_SERVER_PORT = 8081;
 
 var dispatcher = new HttpDispatcher();
 var wsserver = http.createServer(handleRequest);
