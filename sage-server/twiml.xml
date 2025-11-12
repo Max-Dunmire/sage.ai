@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Connect>
-    <Stream url="wss://sage.munkey.cc/media" />
+    <Stream url="https://tish-unknocked-horribly.ngrok-free.dev/media" />
   </Connect>
 </Response>
