@@ -4,6 +4,7 @@ import websockets
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from call_handling import CallHandler
 
 
 url = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
@@ -22,24 +23,12 @@ def serve_websocket_endpoint():
     return FileResponse(path="./twiml.xml")
 
 @app.websocket('/media')
-async def media(ws: WebSocket):
-    await ws.accept()
+async def media(twilio_ws: WebSocket):
+    await twilio_ws.accept()
 
-    async with websockets.connect(url, additional_headers=headers) as ws:
+    async with websockets.connect(url, additional_headers=headers) as openai_ws:
 
+        call_handler = CallHandler(twilio_ws, openai_ws)
 
+        await asyncio.TaskGroup(call_handler.audio_in, call_handler.audio_out)
 
-
-
-try:
-    while True:
-        data = await ws.receive_json()
-
-        if data["event"] == "connected":
-            pass
-        if data["event"] == "start":
-            pass
-        if data["event"] == "media":
-            pass
-except WebSocketDisconnect:
-    print("disconnected")
