@@ -9,9 +9,12 @@ from events.events import EventManager
 events = EventManager()
 
 class CallHandler:
-    def __init__(self, ws_in: WebSocket, ws_out: ClientConnection):
+    async def __init__(self, ws_in: WebSocket, ws_out: ClientConnection):
         self.ws_in = ws_in
         self.ws_out = ws_out
+
+        packet = events.serve(event="session-update", instructions="You are a secratary.")
+        await self.ws_out.send(packet)
 
     async def _iter_async(ws: WebSocket):
         while True:
