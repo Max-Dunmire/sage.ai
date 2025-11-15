@@ -1,6 +1,3 @@
-import base64
-import json
-
 from websockets import ClientConnection
 from fastapi import WebSocket, WebSocketDisconnect
 

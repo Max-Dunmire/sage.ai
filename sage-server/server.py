@@ -6,13 +6,11 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from call_handling import CallHandler
-from events.events import EventManager
 from settings import settings as env
 
 
-url = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
-headers = ["Authorization: Bearer " + env.OPEN_AI_KEY]
-events = EventManager()
+GPT_REALTIME_URL = env.GPT_REALTIME_URL
+HEADERS = ["Authorization: Bearer " + env.OPENAI_API_KEY]
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -30,7 +28,7 @@ def serve_websocket_endpoint():
 async def media(twilio_ws: WebSocket):
     await twilio_ws.accept()
 
-    async with websockets.connect(url, additional_headers=headers) as openai_ws:
+    async with websockets.connect(GPT_REALTIME_URL, additional_headers=HEADERS) as openai_ws:
 
         call_handler = CallHandler(twilio_ws, openai_ws)
 
