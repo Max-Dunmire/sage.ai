@@ -6,12 +6,13 @@ from events.events import EventManager
 events = EventManager()
 
 class CallHandler:
-    async def __init__(self, ws_in: WebSocket, ws_out: ClientConnection):
-        self.ws_in = ws_in
-        self.ws_out = ws_out
+    async def __init__(self, ws_client: WebSocket, ws_agent: ClientConnection):
+        self.ws_client = ws_client
+        self.ws_agent = ws_agent
+        self.streamSid = None
 
         packet = events.serve(event="session-update", instructions="You are a secratary.")
-        await self.ws_out.send(packet)
+        await self.ws_agent.send(packet)
 
     async def _iter_async(ws: WebSocket):
         while True:
@@ -22,19 +23,20 @@ class CallHandler:
 
     async def audio_in(self):
         try:
-            for data in self._iter_async(self.ws_in):
+            for data in self._iter_async(self.ws_client):
                 
                 match data["event"]:
                     case "connected":
                         print("Twilio is connected")
                     case "start":
                         print("Start of data flow")
+                        self.streamSid = data["start"]["streamSid"]
                     case "media":
                         
                         payload = data["media"]["payload"]
                         packet = events.serve(event="input_audio_buffer-append", audio=payload)
 
-                        await self.ws_out.send(packet)
+                        await self.ws_agent.send(packet)
 
 
         finally:
@@ -42,4 +44,7 @@ class CallHandler:
             pass
 
     async def audio_out(self):
-        pass
+        async for data in self.ws_agent:
+            if data["type"] == "response.output_audio.delta":
+                payload = data["delta"]
+                self.ws_client.send(events.serve(event="media", streamSid=self.streamSid, payload=payload))
