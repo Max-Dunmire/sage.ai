@@ -30,7 +30,9 @@ async def media(twilio_ws: WebSocket):
 
     async with websockets.connect(GPT_REALTIME_URL, additional_headers=HEADERS) as openai_ws:
 
-        call_handler = CallHandler(twilio_ws, openai_ws)
+        call_handler = await CallHandler.create(twilio_ws, openai_ws)
 
-        await asyncio.TaskGroup(call_handler.audio_in, call_handler.audio_out)
+        async with asyncio.TaskGroup() as tg:
+            tg.create_task(call_handler.audio_in())
+            tg.create_task(call_handler.audio_out())
 

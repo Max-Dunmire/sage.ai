@@ -6,15 +6,19 @@ from events.events import EventManager
 events = EventManager()
 
 class CallHandler:
-    async def __init__(self, ws_client: WebSocket, ws_agent: ClientConnection):
+    def __init__(self, ws_client: WebSocket, ws_agent: ClientConnection):
         self.ws_client = ws_client
         self.ws_agent = ws_agent
         self.streamSid = None
 
+    @classmethod
+    async def create(cls, ws_client, ws_agent):
+        self = cls(ws_client, ws_agent)
         packet = events.serve(event="session-update", instructions="You are a secratary.")
         await self.ws_agent.send(packet)
+        return self
 
-    async def _iter_async(ws: WebSocket):
+    async def _iter_async(self, ws: WebSocket):
         while True:
             try:
                 yield await ws.receive_json()
@@ -23,7 +27,7 @@ class CallHandler:
 
     async def audio_in(self):
         try:
-            for data in self._iter_async(self.ws_client):
+            async for data in self._iter_async(self.ws_client):
                 
                 match data["event"]:
                     case "connected":
@@ -47,4 +51,4 @@ class CallHandler:
         async for data in self.ws_agent:
             if data["type"] == "response.output_audio.delta":
                 payload = data["delta"]
-                self.ws_client.send(events.serve(event="media", streamSid=self.streamSid, payload=payload))
+                await self.ws_client.send_json(events.serve(event="media", streamSid=self.streamSid, payload=payload))
