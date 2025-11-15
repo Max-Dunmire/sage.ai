@@ -1,7 +1,10 @@
 import base64
+import json
 
-from fastapi import WebSocket, WebSocketDisconnect
 from websockets import ClientConnection
+from fastapi import WebSocket, WebSocketDisconnect
+
+from audio_utils import mulaw8k_bytes_to_pcm16_24k, pcm16_24k_bytes_to_mulaw8k
 
 class CallHandler:
     def __init__(self, ws_in: WebSocket, ws_out: ClientConnection):
@@ -26,9 +29,13 @@ class CallHandler:
                         print("Start of data flow")
                     case "media":
                         b64_string = data["media"]["payload"]
-                        decoded_bytes: bytes = base64.b64decode(b64_string)
-
-                    
+                        decoded_mulaw_bytes: bytes = base64.b64decode(b64_string)
+                        pcm16_bytes = mulaw8k_bytes_to_pcm16_24k(decoded_mulaw_bytes)
+                        audio_string = base64.b64encode(pcm16_bytes).decode("ascii")
+                        await self.ws_out.send(json.dumps({
+                            "type": "input_audio_buffer.append",
+                            "audio": audio_string,
+                        }))
 
         finally:
             #cleanup code here
