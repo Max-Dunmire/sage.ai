@@ -1,0 +1,11 @@
+{ 
+ "event": "media",
+ "sequenceNumber": "3", 
+ "media": { 
+   "track": "outbound", 
+   "chunk": "1", 
+   "timestamp": "5",
+   "payload": "no+JhoaJjpz..."
+ } ,
+ "streamSid": "MZXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+}
