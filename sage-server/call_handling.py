@@ -1,3 +1,5 @@
+import json
+
 from websockets import ClientConnection
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -50,6 +52,7 @@ class CallHandler:
 
     async def audio_out(self):
         async for data in self.ws_agent:
+            data = json.loads(data)
             if data["type"] == "response.output_audio.delta":
                 payload = data["delta"]
-                await self.ws_client.send_json(events.serve(event="media", streamSid=self.streamSid, payload=payload))
+                await self.ws_client.send_text(events.serve(event="media", streamSid=self.streamSid, payload=payload))

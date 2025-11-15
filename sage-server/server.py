@@ -10,15 +10,12 @@ from settings import settings as env
 
 
 GPT_REALTIME_URL = env.GPT_REALTIME_URL
-HEADERS = ["Authorization: Bearer " + env.OPENAI_API_KEY]
+HEADERS = { "Authorization": f"Bearer {env.OPENAI_API_KEY}" }
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
 app = FastAPI()
 
-@app.get('/')
-def root():
-    pass
 
 @app.post('/twiml')
 def serve_websocket_endpoint():
