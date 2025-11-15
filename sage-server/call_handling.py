@@ -18,7 +18,8 @@ class CallHandler:
         await self.ws_agent.send(packet)
         return self
 
-    async def _iter_async(self, ws: WebSocket):
+    @staticmethod
+    async def _iter_async(ws: WebSocket):
         while True:
             try:
                 yield await ws.receive_json()

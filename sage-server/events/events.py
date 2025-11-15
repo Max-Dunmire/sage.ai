@@ -22,7 +22,14 @@ class EventManager:
 
         template = deepcopy(self._templates[event])
 
+        def insert(k: str, v: int | bool | str, d: dict) -> None:
+            for key, value in d.items():
+                if isinstance(value, dict):
+                    insert(k, v, value)
+                elif key == k:
+                    d[key] = v
+
         for key, value in kwargs.items():
-            template[key] = value
+            insert(key, value, template)
     
         return json.dumps(template)
