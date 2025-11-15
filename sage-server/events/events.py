@@ -1,6 +1,7 @@
 import json
 
 from pathlib import Path
+from copy import deepcopy
 
 DIR = Path(__file__).resolve().parent
 TEMPLATES = DIR / "templates"
@@ -19,8 +20,9 @@ class EventManager:
 
     def serve(self, event, **kwargs):
 
-        template = self._templates[event]
+        template = deepcopy(self._templates[event])
 
         for key, value in kwargs.items():
             template[key] = value
     
+        return json.dumps(template)
