@@ -4,11 +4,15 @@ import websockets
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+
 from call_handling import CallHandler
+from events.events import EventManager
+from settings import settings as env
 
 
 url = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
-headers = ["Authorization: Bearer " + OPENAI_API_KEY]
+headers = ["Authorization: Bearer " + env.OPEN_AI_KEY]
+events = EventManager()
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
