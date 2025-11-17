@@ -51,8 +51,11 @@ class CallHandler:
             pass
 
     async def audio_out(self):
-        async for data in self.ws_agent:
-            data = json.loads(data)
-            if data["type"] == "response.output_audio.delta":
-                payload = data["delta"]
-                await self.ws_client.send_text(events.serve(event="media", streamSid=self.streamSid, payload=payload))
+        try:
+            async for data in self.ws_agent:
+                data = json.loads(data)
+                if data["type"] == "response.output_audio.delta":
+                    payload = data["delta"]
+                    await self.ws_client.send_text(events.serve(event="media", streamSid=self.streamSid, payload=payload))
+        except Exception:
+            pass # some error handling
