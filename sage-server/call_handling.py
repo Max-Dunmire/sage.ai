@@ -4,6 +4,9 @@ from websockets import ClientConnection
 from fastapi import WebSocket, WebSocketDisconnect
 
 from events.events import EventManager
+from logging_utils import make_logger
+
+call_handling_logger = make_logger("call_handling")
 
 events = EventManager()
 
@@ -18,6 +21,7 @@ class CallHandler:
         self = cls(ws_client, ws_agent)
         packet = events.serve(event="session-update", instructions="You are a secratary.")
         await self.ws_agent.send(packet)
+        call_handling_logger.info("Sent session.update config data")
         return self
 
     @staticmethod
@@ -34,12 +38,14 @@ class CallHandler:
                 
                 match data["event"]:
                     case "connected":
-                        print("Twilio is connected")
+                        call_handling_logger.debug("'connected' packet received from Twilio")
                     case "start":
-                        print("Start of data flow")
+                        call_handling_logger.debug("'start' packet received from Twilio")
                         self.streamSid = data["start"]["streamSid"]
+                        call_handling_logger.info(f"'streamSid' has been set to {self.streamSid}")
                     case "media":
-                        
+                        call_handling_logger.debug("'media' packet received from Twilio")
+
                         payload = data["media"]["payload"]
                         packet = events.serve(event="input_audio_buffer-append", audio=payload)
 
@@ -54,8 +60,18 @@ class CallHandler:
         try:
             async for data in self.ws_agent:
                 data = json.loads(data)
-                if data["type"] == "response.output_audio.delta":
-                    payload = data["delta"]
-                    await self.ws_client.send_text(events.serve(event="media", streamSid=self.streamSid, payload=payload))
+                call_handling_logger.info(f"'{data["type"]}' received from OpenAI")
+                match data["type"]:
+                    case "response.output_audio.delta":
+                        payload = data["delta"]
+                        await self.ws_client.send_text(events.serve(event="media", streamSid=self.streamSid, payload=payload))
+                        call_handling_logger.debug("'response.output' packet forwarded to Twilio")
+                    case "response.created":
+                        pass
+                    case "response.done":
+                        pass
+                    case "error":
+                        call_handling_logger.error(json.dumps(data))
+    
         except Exception:
             pass # some error handling

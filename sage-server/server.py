@@ -23,17 +23,17 @@ app = FastAPI()
 
 @app.post('/twiml')
 def serve_websocket_endpoint():
-    server_logger.debug("twiml endpoint hit")
+    server_logger.info("/twiml : Sending Back TwiML Instructions")
     return FileResponse(path="./twiml.xml")
 
 @app.websocket('/media')
 async def media(twilio_ws: WebSocket):
-    server_logger.debug("twilio endpoint hit")
+    server_logger.info("/media : Starting Bidirectional MediaStream")
     await twilio_ws.accept()
-    server_logger.info("twilio websocket connected")
+    server_logger.debug("Twilio websocket accepted")
 
     async with websockets.connect(GPT_REALTIME_URL, additional_headers=HEADERS) as openai_ws:
-        server_logger.info("openai websocket connected")
+        server_logger.debug("OpenAI websocket connected")
 
         call_handler = await CallHandler.create(twilio_ws, openai_ws)
 

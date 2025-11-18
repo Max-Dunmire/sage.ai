@@ -32,7 +32,7 @@ def setup_logger(log_dir: str = "logs", level: str = "info"):
     logger.setLevel(log_level[level])
 
     handler = logging.FileHandler(log_path)
-    formatter = logging.Formatter("%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
 
     handler.setFormatter(formatter)
     logger.addHandler(handler)
