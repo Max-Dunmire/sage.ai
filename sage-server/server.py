@@ -9,13 +9,12 @@ from call_handling import CallHandler
 from settings import settings as env
 from logging_utils import setup_logger, make_logger
 
+
 setup_logger(level="debug")
 server_logger = make_logger("server")
 
 GPT_REALTIME_URL = env.GPT_REALTIME_URL
 HEADERS = { "Authorization": f"Bearer {env.OPENAI_API_KEY}" }
-
-
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
@@ -29,6 +28,7 @@ def serve_websocket_endpoint():
 
 @app.websocket('/media')
 async def media(twilio_ws: WebSocket):
+    server_logger.debug("twilio endpoint hit")
     await twilio_ws.accept()
     server_logger.info("twilio websocket connected")
 
