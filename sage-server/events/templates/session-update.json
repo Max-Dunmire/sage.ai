@@ -15,13 +15,13 @@
                     "create_response": true,
                     "idle_timeout_ms": 20000
                 }
-            }
-        },
-        "output": {
-            "format": {
-                "type": "audio/pcmu"
             },
-            "voice": "marin"
+            "output": {
+                "format": {
+                    "type": "audio/pcmu"
+                },
+                "voice": "marin"
+            }
         },
         "instructions": "<placeholder>"
     }
