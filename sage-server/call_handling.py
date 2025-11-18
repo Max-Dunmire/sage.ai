@@ -72,6 +72,10 @@ class CallHandler:
                         pass
                     case "error":
                         call_handling_logger.error(json.dumps(data))
-    
+                    case "conversation.item.done":
+                        call_handling_logger.debug(json.dumps(data))
+                        # call_handling_logger.debug(data["item"]["content"][0]["text"])
+                    case _:
+                        call_handling_logger.debug(json.dumps(data))
         except Exception:
             pass # some error handling
