@@ -66,15 +66,6 @@ class CallHandler:
                         payload = data["delta"]
                         await self.ws_client.send_text(events.serve(event="media", streamSid=self.streamSid, payload=payload))
                         call_handling_logger.debug("'response.output' packet forwarded to Twilio")
-                    case "response.created":
-                        pass
-                    case "response.done":
-                        pass
-                    case "error":
-                        call_handling_logger.error(json.dumps(data))
-                    case "conversation.item.done":
-                        call_handling_logger.debug(json.dumps(data))
-                        # call_handling_logger.debug(data["item"]["content"][0]["text"])
                     case _:
                         call_handling_logger.debug(json.dumps(data))
         except Exception:
