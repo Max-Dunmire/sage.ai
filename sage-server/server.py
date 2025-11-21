@@ -22,7 +22,7 @@ app = FastAPI()
 
 
 @app.post('/twiml')
-def serve_websocket_endpoint():
+def serve_websocket_endpoint() -> FileResponse:
     server_logger.info("/twiml : Sending Back TwiML Instructions")
     return FileResponse(path="./twiml.xml")
 

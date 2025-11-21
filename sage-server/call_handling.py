@@ -15,6 +15,7 @@ class CallHandler:
         self.ws_client = ws_client
         self.ws_agent = ws_agent
         self.streamSid = None
+        self.accountSid = None
 
     @classmethod
     async def create(cls, ws_client, ws_agent):
@@ -59,7 +60,7 @@ class CallHandler:
     async def audio_out(self):
         try:
             async for data in self.ws_agent:
-                data = json.loads(data)
+                data : dict = json.loads(data)
                 call_handling_logger.info(f"'{data["type"]}' received from OpenAI")
                 match data["type"]:
                     case "response.output_audio.delta":
