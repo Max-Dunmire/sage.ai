@@ -18,7 +18,7 @@ class EventManager:
             with open(file, 'r') as f:
                 self._templates[name] = json.load(f)
 
-    def serve(self, event, **kwargs):
+    def serve(self, event: str, **kwargs) -> str:
 
         template = deepcopy(self._templates[event])
 

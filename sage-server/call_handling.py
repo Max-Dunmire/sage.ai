@@ -52,7 +52,6 @@ class CallHandler:
 
                         await self.ws_agent.send(packet)
 
-
         finally:
             #cleanup code here
             pass
