@@ -1,10 +1,19 @@
-from sqlalchemy import Integer, String, Float, Column, ForeignKey
+from sqlalchemy import Integer, String, Float, Column, ForeignKey, DateTime, func
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
 class Call(Base):
-    call_id = Column(Integer, primary_key=True)
+    __tablename__ = 'calls'
+    call_sid = Column(String, primary_key=True)
+    account_sid = Column(String)
+    recipient = Column(String, nullable=False)
+    caller = Column(String, nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now()
+    )
 
 class Person(Base):
     __tablename__ = 'people'

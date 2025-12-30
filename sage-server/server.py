@@ -6,6 +6,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse
 
 from call_handling import CallHandler
+from db import AsyncSessionLocal
+from db.crud import create_call
 from utils.settings import settings as env
 from utils.logger import setup_logger, make_logger
 from utils.cache import get_cache
@@ -24,8 +26,19 @@ app = FastAPI()
 
 @app.post('/twiml')
 async def serve_websocket_endpoint(request: Request) -> FileResponse:
-    form = await request.form()
-    print(form.get("From"))
+    form, cache = await asyncio.gather(
+        request.form(),
+        get_cache()
+    )
+
+    call_sid = form.get("CallSid")
+    account_sid = form.get("AccountSid")
+    recipient = form.get("To")
+    caller = form.get("From")
+
+    async with AsyncSessionLocal() as session:
+        await create_call(session, call_sid, account_sid, recipient, caller)
+
     server_logger.info("/twiml : Sending Back TwiML Instructions")
     return FileResponse(path="./twiml.xml")
 

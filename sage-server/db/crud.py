@@ -1,6 +1,27 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.models import Person, Thing
+from db.models import Person, Thing, Call
+
+
+async def create_call(
+    db: AsyncSession, 
+    call_sid: int,
+    account_sid: int, 
+    recipient: str,
+    caller: str
+) -> Call:
+
+    call = Call(
+        call_sid=call_sid,
+        account_sid=account_sid,
+        recipient=recipient,
+        caller=caller
+    )
+
+    db.add(call)
+    await db.commit()
+    await db.refresh(call)
+    return call    
 
 async def create_person(db: AsyncSession, name: str, age: int | None = None) -> Person:
     person = Person(name=name, age=age)
