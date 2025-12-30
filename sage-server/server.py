@@ -2,12 +2,13 @@ import uvloop
 import asyncio
 import websockets
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request
 from fastapi.responses import FileResponse
 
 from call_handling import CallHandler
-from settings import settings as env
-from logging_utils import setup_logger, make_logger
+from utils.settings import settings as env
+from utils.logger import setup_logger, make_logger
+from utils.cache import get_cache
 
 
 setup_logger(level="debug")
@@ -22,7 +23,9 @@ app = FastAPI()
 
 
 @app.post('/twiml')
-def serve_websocket_endpoint() -> FileResponse:
+async def serve_websocket_endpoint(request: Request) -> FileResponse:
+    form = await request.form()
+    print(form.get("From"))
     server_logger.info("/twiml : Sending Back TwiML Instructions")
     return FileResponse(path="./twiml.xml")
 

@@ -1,7 +1,8 @@
 from pathlib import Path
 from dotenv import dotenv_values
 
-ENV = Path(__file__).resolve().parent / ".env"
+ROOT = Path(__file__).resolve().parents[1]
+ENV = ROOT / ".env"
 
 class Settings:
 

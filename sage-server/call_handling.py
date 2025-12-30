@@ -4,7 +4,7 @@ from websockets import ClientConnection
 from fastapi import WebSocket, WebSocketDisconnect
 
 from events.events import EventManager
-from logging_utils import make_logger
+from utils.logger import make_logger
 
 call_handling_logger = make_logger("call_handling")
 

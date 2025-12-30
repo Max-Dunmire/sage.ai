@@ -3,6 +3,9 @@ from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
 
+class Call(Base):
+    call_id = Column(Integer, primary_key=True)
+
 class Person(Base):
     __tablename__ = 'people'
     id = Column(Integer, primary_key=True)
