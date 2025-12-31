@@ -28,7 +28,8 @@ app = FastAPI()
 async def serve_websocket_endpoint(request: Request) -> FileResponse:
     form, cache = await asyncio.gather(
         request.form(),
-        get_cache()
+        get_cache(),
+        return_exceptions=True
     )
 
     call_sid = form.get("CallSid")
@@ -37,7 +38,11 @@ async def serve_websocket_endpoint(request: Request) -> FileResponse:
     caller = form.get("From")
 
     async with AsyncSessionLocal() as session:
-        await create_call(session, call_sid, account_sid, recipient, caller)
+        await asyncio.gather(
+            create_call(session, call_sid, account_sid, recipient, caller),
+            cache.set(f"call_{call_sid}", recipient),
+            return_exceptions=True
+        )
 
     server_logger.info("/twiml : Sending Back TwiML Instructions")
     return FileResponse(path="./twiml.xml")
@@ -51,7 +56,7 @@ async def media(twilio_ws: WebSocket):
     async with websockets.connect(GPT_REALTIME_URL, additional_headers=HEADERS) as openai_ws:
         server_logger.debug("OpenAI websocket connected")
 
-        call_handler = await CallHandler.create(twilio_ws, openai_ws)
+        call_handler = CallHandler(twilio_ws, openai_ws)
 
         async with asyncio.TaskGroup() as tg:
             tg.create_task(call_handler.audio_in())

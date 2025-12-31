@@ -15,6 +15,13 @@ class Call(Base):
         server_default=func.now()
     )
 
+class Client(Base):
+    __tablename__ = 'clients'
+    client_id = Column(Integer, primary_key=True)
+    phone_number = Column(String, unique=True, nullable=False)
+    name = Column(String, nullable=False)
+    instructions = Column(String)
+
 class Person(Base):
     __tablename__ = 'people'
     id = Column(Integer, primary_key=True)

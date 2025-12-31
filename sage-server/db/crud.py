@@ -1,6 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.models import Person, Thing, Call
+from db.models import Person, Thing, Call, Client
 
 
 async def create_call(
@@ -22,6 +22,25 @@ async def create_call(
     await db.commit()
     await db.refresh(call)
     return call    
+
+async def get_client(
+    db: AsyncSession, 
+    client_id: int = None, 
+    phone_number: str = None,
+    name: str = None
+) -> Client | None:
+    
+    if client_id is not None:
+        result = await db.execute(select(Client).where(Client.client_id == client_id))
+        return result.scalar_one_or_none()
+    elif phone_number is not None:
+        result = await db.execute(select(Client).where(Client.phone_number == phone_number))
+        return result.scalar_one_or_none()
+    elif name is not None:
+        result = await db.execute(select(Client).where(Client.name == name))
+        return result.scalar_one_or_none()
+    else:
+        raise ValueError("Cannot find Client with all arguments equaled to 'None'")
 
 async def create_person(db: AsyncSession, name: str, age: int | None = None) -> Person:
     person = Person(name=name, age=age)
